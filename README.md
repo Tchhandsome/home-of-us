@@ -58,3 +58,13 @@ npm run dev --workspace apps/admin
 ## 当前阶段
 
 当前项目采用模块化单体架构，不拆微服务。健康、药品和可穿戴设备接入暂不进入 V1。
+
+## 生产部署
+
+第一版推荐使用腾讯云轻量应用服务器或同类 Ubuntu 服务器，通过 Docker Compose 部署：
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+详细步骤见 [部署指南](docs/deploy.md)。

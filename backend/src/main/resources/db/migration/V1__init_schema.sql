@@ -334,12 +334,20 @@ SELECT 1002, 1, '丹丹', 'PARTNER', '#D46A6A', NULL, NULL, NOW(), NOW(), 1, 1, 
 WHERE NOT EXISTS (SELECT 1 FROM family_member WHERE id = 1002);
 
 UPDATE family_member
-SET display_name = '小谭', role_code = 'OWNER', avatar_color = '#2F6B4F', updated_at = NOW(), updated_by = 1001,
+SET display_name = CASE WHEN deleted = 1 THEN '小谭' ELSE display_name END,
+    role_code = 'OWNER',
+    avatar_color = CASE WHEN deleted = 1 THEN '#2F6B4F' ELSE avatar_color END,
+    updated_at = NOW(),
+    updated_by = 1001,
     deleted = 0
 WHERE id = 1001;
 
 UPDATE family_member
-SET display_name = '丹丹', role_code = 'PARTNER', avatar_color = '#D46A6A', updated_at = NOW(), updated_by = 1001,
+SET display_name = CASE WHEN deleted = 1 THEN '丹丹' ELSE display_name END,
+    role_code = 'PARTNER',
+    avatar_color = CASE WHEN deleted = 1 THEN '#D46A6A' ELSE avatar_color END,
+    updated_at = NOW(),
+    updated_by = 1001,
     deleted = 0
 WHERE id = 1002;
 
@@ -364,15 +372,33 @@ SELECT 1002, 1, 1002, '丹丹', SHA2(CONCAT('home-of-us:', '123456'), 256), '丹
 WHERE NOT EXISTS (SELECT 1 FROM app_user WHERE id = 1002);
 
 UPDATE app_user
-SET family_id = 1, family_member_id = 1001, username = '小谭',
-    password_hash = SHA2(CONCAT('home-of-us:', '123456'), 256), display_name = '小谭',
-    status = 'ACTIVE', updated_at = NOW(), updated_by = 1001, deleted = 0
+SET family_id = 1,
+    family_member_id = 1001,
+    username = CASE WHEN deleted = 1 OR status = 'DELETED' THEN '小谭' ELSE username END,
+    password_hash = CASE
+        WHEN deleted = 1 OR status = 'DELETED' THEN SHA2(CONCAT('home-of-us:', '123456'), 256)
+        ELSE password_hash
+    END,
+    display_name = CASE WHEN deleted = 1 OR status = 'DELETED' THEN '小谭' ELSE display_name END,
+    status = 'ACTIVE',
+    updated_at = NOW(),
+    updated_by = 1001,
+    deleted = 0
 WHERE id = 1001;
 
 UPDATE app_user
-SET family_id = 1, family_member_id = 1002, username = '丹丹',
-    password_hash = SHA2(CONCAT('home-of-us:', '123456'), 256), display_name = '丹丹',
-    status = 'ACTIVE', updated_at = NOW(), updated_by = 1001, deleted = 0
+SET family_id = 1,
+    family_member_id = 1002,
+    username = CASE WHEN deleted = 1 OR status = 'DELETED' THEN '丹丹' ELSE username END,
+    password_hash = CASE
+        WHEN deleted = 1 OR status = 'DELETED' THEN SHA2(CONCAT('home-of-us:', '123456'), 256)
+        ELSE password_hash
+    END,
+    display_name = CASE WHEN deleted = 1 OR status = 'DELETED' THEN '丹丹' ELSE display_name END,
+    status = 'ACTIVE',
+    updated_at = NOW(),
+    updated_by = 1001,
+    deleted = 0
 WHERE id = 1002;
 
 SET @ddl = (
