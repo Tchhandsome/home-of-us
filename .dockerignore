@@ -1,0 +1,13 @@
+.git
+.idea
+node_modules
+apps/mobile/dist
+apps/admin/dist
+apps/**/node_modules
+backend/target
+data
+*.log
+*.tar
+*.tar.gz
+*.zip
+.DS_Store
