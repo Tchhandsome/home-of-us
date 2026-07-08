@@ -1,6 +1,7 @@
 package com.homeofus.common.web;
 
 import com.homeofus.auth.repository.AuthRepository;
+import com.homeofus.common.exception.BusinessException;
 import java.util.Map;
 import java.util.Objects;
 import javax.servlet.http.HttpServletRequest;
@@ -17,8 +18,6 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Component
 public class CurrentUserProvider {
 
-    private static final CurrentUser DEFAULT_USER = new CurrentUser(1001L, 1L, 1001L, "小谭", "小谭");
-
     private static final String TOKEN_HEADER = "X-Home-Token";
 
     private final AuthRepository authRepository;
@@ -28,37 +27,36 @@ public class CurrentUserProvider {
     }
 
     /**
-     * 获取当前用户，未登录时回退默认用户。
+     * 获取当前用户，未登录时直接拦截，避免请求被错误归属到默认账号。
      *
      * @return 当前用户
      */
     public CurrentUser getCurrentUser() {
         ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (Objects.isNull(attributes)) {
-            return DEFAULT_USER;
+            throw new BusinessException("AUTH_REQUIRED", "登录状态已失效，请重新登录");
         }
         HttpServletRequest request = attributes.getRequest();
         String token = request.getHeader(TOKEN_HEADER);
         if (StringUtils.isBlank(token)) {
-            return DEFAULT_USER;
+            throw new BusinessException("AUTH_REQUIRED", "登录状态已失效，请重新登录");
         }
         return authRepository.findByToken(token)
                 .map(this::toCurrentUser)
-                .orElse(DEFAULT_USER);
+                .orElseThrow(() -> new BusinessException("AUTH_REQUIRED", "登录状态已失效，请重新登录"));
     }
 
     private CurrentUser toCurrentUser(Map<String, Object> row) {
-        return new CurrentUser(numberValue(row, "id", DEFAULT_USER.getUserId()),
-                numberValue(row, "family_id", DEFAULT_USER.getFamilyId()),
-                numberValue(row, "family_member_id", DEFAULT_USER.getMemberId()), String.valueOf(row.get("username")),
+        return new CurrentUser(numberValue(row, "id"), numberValue(row, "family_id"),
+                numberValue(row, "family_member_id"), String.valueOf(row.get("username")),
                 String.valueOf(row.get("display_name")));
     }
 
-    private Long numberValue(Map<String, Object> row, String key, Long fallback) {
+    private Long numberValue(Map<String, Object> row, String key) {
         Object value = row.get(key);
         if (value instanceof Number) {
             return ((Number) value).longValue();
         }
-        return fallback;
+        throw new BusinessException("AUTH_REQUIRED", "登录状态已失效，请重新登录");
     }
 }

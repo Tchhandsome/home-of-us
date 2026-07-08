@@ -67,6 +67,22 @@ public class FamilyRepository {
     }
 
     /**
+     * 查询成员偏好值。
+     *
+     * @param familyId 家庭 ID
+     * @param memberId 成员 ID
+     * @param preferenceKey 偏好键
+     * @return 偏好值
+     */
+    public Optional<String> findMemberPreferenceValue(Long familyId, Long memberId, String preferenceKey) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT preference_value FROM member_preference "
+                        + "WHERE family_id = ? AND member_id = ? AND preference_key = ? AND deleted = 0",
+                familyId, memberId, preferenceKey);
+        return rows.stream().findFirst().map(row -> String.valueOf(row.get("preference_value")));
+    }
+
+    /**
      * 新增家庭成员。
      *
      * @param id 成员 ID
@@ -77,7 +93,7 @@ public class FamilyRepository {
      */
     public void insertMember(Long id, Long familyId, CreateFamilyMemberRequest request, Long operatorId,
             LocalDateTime now) {
-        String roleCode = StringUtils.defaultIfBlank(request.getRoleCode(), "PARTNER");
+        String roleCode = StringUtils.defaultIfBlank(request.getRoleCode(), "家庭成员");
         jdbcTemplate.update(
                 "INSERT INTO family_member (id, family_id, display_name, role_code, avatar_color, avatar_url, bio, "
                         + "created_at, updated_at, created_by, updated_by, deleted) "
@@ -107,5 +123,27 @@ public class FamilyRepository {
                         + "WHERE id = ? AND family_id = ? AND deleted = 0",
                 request.getDisplayName(), request.getRoleCode(), request.getAvatarColor(), request.getAvatarUrl(),
                 request.getBio(), now, operatorId, id, familyId);
+    }
+
+    /**
+     * 保存成员偏好。
+     *
+     * @param id 主键
+     * @param familyId 家庭 ID
+     * @param memberId 成员 ID
+     * @param preferenceKey 偏好键
+     * @param preferenceValue 偏好值
+     * @param operatorId 操作人
+     * @param now 当前时间
+     */
+    public void saveMemberPreference(Long id, Long familyId, Long memberId, String preferenceKey,
+            String preferenceValue, Long operatorId, LocalDateTime now) {
+        jdbcTemplate.update(
+                "INSERT INTO member_preference (id, family_id, member_id, preference_key, preference_value, "
+                        + "created_at, updated_at, created_by, updated_by, deleted) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0) "
+                        + "ON DUPLICATE KEY UPDATE preference_value = VALUES(preference_value), updated_at = VALUES(updated_at), "
+                        + "updated_by = VALUES(updated_by), deleted = 0",
+                id, familyId, memberId, preferenceKey, preferenceValue, now, now, operatorId, operatorId);
     }
 }

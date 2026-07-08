@@ -1,14 +1,17 @@
 package com.homeofus.finance.service;
 
 import com.homeofus.common.domain.DefaultFamily;
+import com.homeofus.common.exception.BusinessException;
 import com.homeofus.common.jdbc.IdGenerator;
 import com.homeofus.common.time.TimeProvider;
 import com.homeofus.common.web.CurrentUser;
 import com.homeofus.common.web.CurrentUserProvider;
 import com.homeofus.finance.dto.CreateFinanceRecordRequest;
 import com.homeofus.finance.repository.FinanceRepository;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.TemporalAdjusters;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -77,6 +80,19 @@ public class FinanceService {
     }
 
     /**
+     * 查询账本摘要。
+     *
+     * @return 摘要
+     */
+    public Map<String, Object> summary() {
+        LocalDate today = timeProvider.today();
+        LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate weekEnd = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
+        String monthPrefix = today.toString().substring(0, 7);
+        return financeRepository.loadSummary(DefaultFamily.FAMILY_ID, monthPrefix, weekStart, weekEnd);
+    }
+
+    /**
      * 查询默认账本分类。
      *
      * @return 分类列表
@@ -92,6 +108,22 @@ public class FinanceService {
                 category("DIGITAL", "数码"),
                 category("CLOTHES", "服饰"),
                 category("OTHER", "其他"));
+    }
+
+    /**
+     * 删除账本记录。
+     *
+     * @param id 记录 ID
+     * @return 删除结果
+     */
+    public Map<String, Object> delete(Long id) {
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        int updated = financeRepository.delete(id, DefaultFamily.FAMILY_ID, currentUser.getUserId(),
+                timeProvider.now());
+        if (updated == 0) {
+            throw new BusinessException("FINANCE_RECORD_NOT_FOUND", "账本记录不存在或已删除");
+        }
+        return Map.of("updated", updated);
     }
 
     private Map<String, Object> category(String code, String name) {

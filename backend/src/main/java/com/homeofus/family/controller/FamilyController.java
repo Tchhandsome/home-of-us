@@ -2,6 +2,7 @@ package com.homeofus.family.controller;
 
 import com.homeofus.common.api.ApiResponse;
 import com.homeofus.family.dto.CreateFamilyMemberRequest;
+import com.homeofus.family.dto.UpdateHomeCardOrderRequest;
 import com.homeofus.family.dto.UpdateFamilyMemberRequest;
 import com.homeofus.family.service.FamilyService;
 import java.util.Map;
@@ -61,5 +62,16 @@ public class FamilyController {
     public ApiResponse<Map<String, Object>> updateMember(@PathVariable Long id,
             @RequestBody UpdateFamilyMemberRequest request) {
         return ApiResponse.ok(familyService.updateMember(id, request));
+    }
+
+    /**
+     * 更新当前登录成员的首页卡片顺序。
+     *
+     * @param request 顺序请求
+     * @return 更新结果
+     */
+    @PatchMapping("/default/preferences/home-card-order")
+    public ApiResponse<Map<String, Object>> updateHomeCardOrder(@RequestBody UpdateHomeCardOrderRequest request) {
+        return ApiResponse.ok(familyService.updateHomeCardOrder(request));
     }
 }

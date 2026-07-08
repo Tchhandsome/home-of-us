@@ -6,7 +6,9 @@ import com.homeofus.finance.service.FinanceService;
 import java.util.List;
 import java.util.Map;
 import javax.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -61,6 +63,16 @@ public class FinanceController {
     }
 
     /**
+     * 查询账本摘要。
+     *
+     * @return 摘要
+     */
+    @GetMapping("/summary")
+    public ApiResponse<Map<String, Object>> summary() {
+        return ApiResponse.ok(financeService.summary());
+    }
+
+    /**
      * 查询账本默认分类。
      *
      * @return 分类列表
@@ -68,5 +80,16 @@ public class FinanceController {
     @GetMapping("/categories")
     public ApiResponse<List<Map<String, Object>>> findCategories() {
         return ApiResponse.ok(financeService.findCategories());
+    }
+
+    /**
+     * 删除账本记录。
+     *
+     * @param id 记录 ID
+     * @return 删除结果
+     */
+    @DeleteMapping("/records/{id}")
+    public ApiResponse<Map<String, Object>> delete(@PathVariable Long id) {
+        return ApiResponse.ok(financeService.delete(id));
     }
 }

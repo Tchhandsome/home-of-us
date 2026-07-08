@@ -1,8 +1,11 @@
 package com.homeofus.record.service;
 
 import com.homeofus.common.domain.DefaultFamily;
+import com.homeofus.common.exception.BusinessException;
 import com.homeofus.common.jdbc.IdGenerator;
 import com.homeofus.common.time.TimeProvider;
+import com.homeofus.common.web.CurrentUser;
+import com.homeofus.common.web.CurrentUserProvider;
 import com.homeofus.record.dto.CreateQuickRecordRequest;
 import com.homeofus.record.repository.QuickRecordRepository;
 import java.time.LocalDate;
@@ -27,11 +30,14 @@ public class QuickRecordService {
 
     private final TimeProvider timeProvider;
 
+    private final CurrentUserProvider currentUserProvider;
+
     public QuickRecordService(QuickRecordRepository quickRecordRepository, IdGenerator idGenerator,
-            TimeProvider timeProvider) {
+            TimeProvider timeProvider, CurrentUserProvider currentUserProvider) {
         this.quickRecordRepository = quickRecordRepository;
         this.idGenerator = idGenerator;
         this.timeProvider = timeProvider;
+        this.currentUserProvider = currentUserProvider;
     }
 
     /**
@@ -41,11 +47,13 @@ public class QuickRecordService {
      * @return 新记录 ID
      */
     public Map<String, Object> create(CreateQuickRecordRequest request) {
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
         Long id = idGenerator.nextId();
         String recordType = StringUtils.defaultIfBlank(request.getRecordType(), "GENERAL");
         LocalDate happenedOn = parseHappenedOn(request.getHappenedOn());
         // 快速记录必须先保留原文，结构化能力可以后续逐步增强。
-        quickRecordRepository.insert(id, DefaultFamily.FAMILY_ID, request, recordType, happenedOn, timeProvider.now());
+        quickRecordRepository.insert(id, DefaultFamily.FAMILY_ID, request, recordType, happenedOn,
+                currentUser.getUserId(), timeProvider.now());
         return Map.of("id", id);
     }
 
@@ -58,6 +66,22 @@ public class QuickRecordService {
     public List<Map<String, Object>> findRecent(int limit) {
         int safeLimit = Math.min(Math.max(limit, 1), 50);
         return quickRecordRepository.findRecent(DefaultFamily.FAMILY_ID, safeLimit);
+    }
+
+    /**
+     * 删除快速记录。
+     *
+     * @param id 记录 ID
+     * @return 更新结果
+     */
+    public Map<String, Object> delete(Long id) {
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        int updated = quickRecordRepository.delete(id, DefaultFamily.FAMILY_ID, currentUser.getUserId(),
+                timeProvider.now());
+        if (updated == 0) {
+            throw new BusinessException("RECORD_NOT_FOUND", "记录不存在或已删除");
+        }
+        return Map.of("updated", updated);
     }
 
     private LocalDate parseHappenedOn(String happenedOn) {
@@ -74,4 +98,3 @@ public class QuickRecordService {
         }
     }
 }
-

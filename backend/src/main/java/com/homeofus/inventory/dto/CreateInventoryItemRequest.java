@@ -17,6 +17,8 @@ public class CreateInventoryItemRequest {
     @NotBlank(message = "inventory.name.required")
     private String name;
 
+    private String itemType;
+
     private String category;
 
     private BigDecimal quantity;
@@ -24,5 +26,10 @@ public class CreateInventoryItemRequest {
     private String unit;
 
     private BigDecimal lowStockThreshold;
-}
 
+    private String expiresOn;
+
+    private Integer reminderDaysBefore;
+
+    private String note;
+}

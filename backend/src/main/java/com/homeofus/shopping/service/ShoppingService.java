@@ -53,8 +53,9 @@ public class ShoppingService {
      * @return 新购物项 ID
      */
     public Map<String, Object> create(CreateShoppingItemRequest request) {
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
         Long id = idGenerator.nextId();
-        shoppingRepository.insert(id, DefaultFamily.FAMILY_ID, request, timeProvider.now());
+        shoppingRepository.insert(id, DefaultFamily.FAMILY_ID, request, currentUser.getUserId(), timeProvider.now());
         return Map.of("id", id);
     }
 
@@ -101,6 +102,22 @@ public class ShoppingService {
         result.put("updated", updated);
         result.put("financeRecordId", financeRecordId);
         return result;
+    }
+
+    /**
+     * 删除购物项。
+     *
+     * @param id 购物项 ID
+     * @return 更新结果
+     */
+    public Map<String, Object> delete(Long id) {
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        int updated = shoppingRepository.delete(id, DefaultFamily.FAMILY_ID, currentUser.getUserId(),
+                timeProvider.now());
+        if (updated == 0) {
+            throw new BusinessException("SHOPPING_ITEM_NOT_FOUND", "shopping.item.notFound");
+        }
+        return Map.of("updated", updated);
     }
 
     private Long numberValue(Map<String, Object> item, String key) {

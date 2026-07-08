@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -31,17 +32,18 @@ public class PlantRepository {
      * @param request 创建请求
      * @param status 状态
      * @param acquiredOn 入手日期
+     * @param operatorId 操作人
      * @param now 当前时间
      */
     public void insertPlant(Long id, Long familyId, CreatePlantRequest request, String status, LocalDate acquiredOn,
-            LocalDateTime now) {
+            Long operatorId, LocalDateTime now) {
         jdbcTemplate.update(
                 "INSERT INTO plant (id, family_id, name, variety, flower_color, location, status, care_preference, "
                         + "acquired_on, cover_url, created_at, updated_at, created_by, updated_by, deleted) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
                 id, familyId, request.getName(), request.getVariety(), request.getFlowerColor(),
                 request.getLocation(), status, request.getCarePreference(), acquiredOn, request.getCoverUrl(), now,
-                now, 1001L, 1001L);
+                now, operatorId, operatorId);
     }
 
     /**
@@ -69,6 +71,20 @@ public class PlantRepository {
     }
 
     /**
+     * 查询花卉。
+     *
+     * @param plantId 花卉 ID
+     * @param familyId 家庭 ID
+     * @return 花卉
+     */
+    public Optional<Map<String, Object>> findPlant(Long plantId, Long familyId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT id, family_id, name FROM plant WHERE id = ? AND family_id = ? AND deleted = 0",
+                plantId, familyId);
+        return rows.stream().findFirst();
+    }
+
+    /**
      * 新增养护记录。
      *
      * @param id 主键
@@ -77,16 +93,17 @@ public class PlantRepository {
      * @param request 创建请求
      * @param careDate 养护日期
      * @param nextCareAt 下次养护时间
+     * @param operatorId 操作人
      * @param now 当前时间
      */
     public void insertCareRecord(Long id, Long familyId, Long plantId, CreatePlantCareRecordRequest request,
-            LocalDate careDate, LocalDateTime nextCareAt, LocalDateTime now) {
+            LocalDate careDate, LocalDateTime nextCareAt, Long operatorId, LocalDateTime now) {
         jdbcTemplate.update(
                 "INSERT INTO plant_care_record (id, family_id, plant_id, care_type, care_date, detail, raw_text, "
                         + "next_care_at, created_at, updated_at, created_by, updated_by, deleted) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
                 id, familyId, plantId, request.getCareType(), careDate, request.getDetail(), request.getRawText(),
-                nextCareAt, now, now, 1001L, 1001L);
+                nextCareAt, now, now, operatorId, operatorId);
     }
 
     /**
@@ -103,6 +120,67 @@ public class PlantRepository {
     }
 
     /**
+     * 查询养护记录。
+     *
+     * @param plantId 花卉 ID
+     * @param recordId 记录 ID
+     * @return 养护记录
+     */
+    public Optional<Map<String, Object>> findCareRecord(Long plantId, Long recordId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT id, plant_id FROM plant_care_record WHERE id = ? AND plant_id = ? AND deleted = 0",
+                recordId, plantId);
+        return rows.stream().findFirst();
+    }
+
+    /**
+     * 删除花卉。
+     *
+     * @param plantId 花卉 ID
+     * @param familyId 家庭 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int deletePlant(Long plantId, Long familyId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE plant SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE id = ? AND family_id = ? AND deleted = 0",
+                now, operatorId, plantId, familyId);
+    }
+
+    /**
+     * 删除花卉的全部养护记录。
+     *
+     * @param plantId 花卉 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int deleteCareRecordsByPlant(Long plantId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE plant_care_record SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE plant_id = ? AND deleted = 0",
+                now, operatorId, plantId);
+    }
+
+    /**
+     * 删除单条养护记录。
+     *
+     * @param plantId 花卉 ID
+     * @param recordId 记录 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int deleteCareRecord(Long plantId, Long recordId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE plant_care_record SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE id = ? AND plant_id = ? AND deleted = 0",
+                now, operatorId, recordId, plantId);
+    }
+
+    /**
      * 查询花卉数量。
      *
      * @param familyId 家庭 ID
@@ -113,4 +191,3 @@ public class PlantRepository {
                 Integer.class, familyId);
     }
 }
-

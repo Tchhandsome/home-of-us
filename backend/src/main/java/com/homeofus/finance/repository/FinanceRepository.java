@@ -4,6 +4,7 @@ import com.homeofus.finance.dto.CreateFinanceRecordRequest;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -94,5 +95,47 @@ public class FinanceRepository {
                 "SELECT direction, COALESCE(SUM(amount), 0) AS amount FROM finance_record "
                         + "WHERE family_id = ? AND deleted = 0 AND DATE_FORMAT(occurred_on, '%Y-%m') = ? GROUP BY direction",
                 familyId, monthPrefix);
+    }
+
+    /**
+     * 查询账本摘要。
+     *
+     * @param familyId 家庭 ID
+     * @param monthPrefix 月份前缀
+     * @param weekStart 周起始日期
+     * @param weekEnd 周结束日期
+     * @return 摘要
+     */
+    public Map<String, Object> loadSummary(Long familyId, String monthPrefix, LocalDate weekStart, LocalDate weekEnd) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("totalExpense", jdbcTemplate.queryForObject(
+                "SELECT COALESCE(SUM(amount), 0) FROM finance_record WHERE family_id = ? "
+                        + "AND direction = 'EXPENSE' AND deleted = 0",
+                Object.class, familyId));
+        summary.put("monthExpense", jdbcTemplate.queryForObject(
+                "SELECT COALESCE(SUM(amount), 0) FROM finance_record WHERE family_id = ? "
+                        + "AND direction = 'EXPENSE' AND deleted = 0 AND DATE_FORMAT(occurred_on, '%Y-%m') = ?",
+                Object.class, familyId, monthPrefix));
+        summary.put("weekExpense", jdbcTemplate.queryForObject(
+                "SELECT COALESCE(SUM(amount), 0) FROM finance_record WHERE family_id = ? "
+                        + "AND direction = 'EXPENSE' AND deleted = 0 AND occurred_on BETWEEN ? AND ?",
+                Object.class, familyId, weekStart, weekEnd));
+        return summary;
+    }
+
+    /**
+     * 删除账本记录。
+     *
+     * @param id 记录 ID
+     * @param familyId 家庭 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int delete(Long id, Long familyId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE finance_record SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE id = ? AND family_id = ? AND deleted = 0",
+                now, operatorId, id, familyId);
     }
 }

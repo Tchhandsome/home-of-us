@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Home Of Us</title>
+  <desc id="desc">A cute sticker-style home icon with bold black outlines.</desc>
+  <defs>
+    <filter id="stickerShadow" x="52" y="58" width="420" height="420" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" flood-color="#1f1f1f" flood-opacity=".12" stdDeviation="7"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="#fff8ee"/>
+  <circle cx="104" cy="98" r="17" fill="#ffd36b" stroke="#0d0d0d" stroke-width="9"/>
+  <path fill="#8bdc76" stroke="#0d0d0d" stroke-linecap="round" stroke-linejoin="round" stroke-width="11" d="M385 89c30 1 53 20 54 50-31 4-57-16-54-50z"/>
+  <path fill="#ff5b91" stroke="#0d0d0d" stroke-linecap="round" stroke-linejoin="round" stroke-width="11" d="M361 142c-19-22-54-17-63 10-7 22 8 45 32 50 29 6 54-16 55-45 0-6-10-11-24-15z"/>
+  <g filter="url(#stickerShadow)" stroke="#0d0d0d" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#ff709d" stroke-width="18" d="M119 230 238 120c10-9 26-9 36 0l119 110c12 11 5 31-12 32-6 0-12-2-17-6l-96-88c-7-6-17-6-24 0l-96 88c-12 11-31 2-31-15 0-4 1-8 2-11z"/>
+    <rect x="145" y="218" width="222" height="190" rx="28" fill="#bfeaf0" stroke-width="18"/>
+    <rect x="216" y="301" width="80" height="107" rx="21" fill="#ffd47b" stroke-width="15"/>
+    <path fill="#ff5b79" stroke-width="9" d="M256 336c-9-17-38-12-38 11 0 22 32 40 38 46 6-6 38-24 38-46 0-23-29-28-38-11z"/>
+    <rect x="174" y="258" width="48" height="46" rx="10" fill="#fffdf7" stroke-width="13"/>
+    <rect x="290" y="258" width="48" height="46" rx="10" fill="#fffdf7" stroke-width="13"/>
+    <path fill="none" stroke-width="9" d="M198 260v43M175 281h46M314 260v43M291 281h46"/>
+    <rect x="313" y="150" width="43" height="68" rx="10" fill="#ffd47b" stroke-width="15"/>
+    <path fill="#ff709d" stroke-width="14" d="M157 379h198"/>
+    <path fill="#8bdc76" stroke-width="10" d="M359 367c25-25 63-18 76 15-29 14-63 7-76-15z"/>
+    <path fill="none" stroke-width="9" d="M360 372c21 4 40 8 58 12"/>
+  </g>
+  <path fill="#0d0d0d" d="M243 352a8 8 0 1 1-16 0 8 8 0 0 1 16 0z"/>
+  <path fill="#ff5b91" stroke="#0d0d0d" stroke-linecap="round" stroke-linejoin="round" stroke-width="9" d="M89 333c-11-20-45-14-45 12 0 25 39 47 45 53 7-6 45-28 45-53 0-26-34-32-45-12z"/>
+  <path fill="#ffd36b" stroke="#0d0d0d" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="M402 272h57M431 243v57"/>
+</svg>

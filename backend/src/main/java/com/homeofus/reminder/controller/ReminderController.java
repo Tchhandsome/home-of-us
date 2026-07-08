@@ -6,6 +6,7 @@ import com.homeofus.reminder.service.ReminderService;
 import java.util.List;
 import java.util.Map;
 import javax.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -62,5 +63,15 @@ public class ReminderController {
     public ApiResponse<Map<String, Object>> complete(@PathVariable Long id) {
         return ApiResponse.ok(reminderService.complete(id));
     }
-}
 
+    /**
+     * 删除提醒。
+     *
+     * @param id 提醒 ID
+     * @return 删除结果
+     */
+    @DeleteMapping("/{id}")
+    public ApiResponse<Map<String, Object>> delete(@PathVariable Long id) {
+        return ApiResponse.ok(reminderService.delete(id));
+    }
+}

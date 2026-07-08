@@ -29,15 +29,16 @@ public class ShoppingRepository {
      * @param id 主键
      * @param familyId 家庭 ID
      * @param request 创建请求
+     * @param operatorId 操作人
      * @param now 当前时间
      */
-    public void insert(Long id, Long familyId, CreateShoppingItemRequest request, LocalDateTime now) {
+    public void insert(Long id, Long familyId, CreateShoppingItemRequest request, Long operatorId, LocalDateTime now) {
         jdbcTemplate.update(
                 "INSERT INTO shopping_item (id, family_id, name, category, channel, quantity, status, actual_amount, "
                         + "purchased_at, buyer_id, finance_record_id, checked_at, created_at, updated_at, created_by, "
                         + "updated_by, deleted) VALUES (?, ?, ?, ?, ?, ?, 'TODO', NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, 0)",
                 id, familyId, request.getName(), request.getCategory(), request.getChannel(), request.getQuantity(),
-                now, now, 1001L, 1001L);
+                now, now, operatorId, operatorId);
     }
 
     /**
@@ -95,5 +96,21 @@ public class ShoppingRepository {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(1) FROM shopping_item WHERE family_id = ? AND status = 'TODO' AND deleted = 0",
                 Integer.class, familyId);
+    }
+
+    /**
+     * 删除购物项。
+     *
+     * @param id 购物项 ID
+     * @param familyId 家庭 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int delete(Long id, Long familyId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE shopping_item SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE id = ? AND family_id = ? AND deleted = 0",
+                now, operatorId, id, familyId);
     }
 }

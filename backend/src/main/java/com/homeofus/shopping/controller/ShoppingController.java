@@ -7,6 +7,7 @@ import com.homeofus.shopping.service.ShoppingService;
 import java.util.List;
 import java.util.Map;
 import javax.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -62,5 +63,16 @@ public class ShoppingController {
     public ApiResponse<Map<String, Object>> check(@PathVariable Long id,
             @Valid @RequestBody CompleteShoppingItemRequest request) {
         return ApiResponse.ok(shoppingService.check(id, request));
+    }
+
+    /**
+     * 删除购物项。
+     *
+     * @param id 购物项 ID
+     * @return 删除结果
+     */
+    @DeleteMapping("/{id}")
+    public ApiResponse<Map<String, Object>> delete(@PathVariable Long id) {
+        return ApiResponse.ok(shoppingService.delete(id));
     }
 }

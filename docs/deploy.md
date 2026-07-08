@@ -163,3 +163,51 @@ tar -czf uploads-backup.tar.gz data/uploads
 3. 使用 Nginx + Let's Encrypt 证书。
 
 大陆服务器绑定域名通常需要备案；没有备案前先用公网 IP 测试。
+
+## 七、重新发版最短路径
+
+如果服务器已经跑起来了，后续大多数情况直接走“镜像包重新发版”即可。
+
+### 7.1 本机重新打包
+
+在项目根目录执行：
+
+```bash
+sh deploy/scripts/package-images.sh
+```
+
+脚本会自动完成：
+
+1. 后端打包。
+2. 手机端构建。
+3. 管理端构建。
+4. 生成两个文件：
+   - `deploy/dist/home-of-us-images.tar.gz`
+   - `deploy/dist/home-of-us-deploy.tar.gz`
+
+### 7.2 上传到服务器
+
+```bash
+scp deploy/dist/home-of-us-images.tar.gz deploy/dist/home-of-us-deploy.tar.gz ubuntu@你的服务器IP:~/
+```
+
+### 7.3 服务器重新加载并重启
+
+```bash
+mkdir -p ~/home-of-us
+tar -xzf ~/home-of-us-deploy.tar.gz -C ~/home-of-us
+gunzip -c ~/home-of-us-images.tar.gz | docker load
+cd ~/home-of-us
+cp -n .env.example .env
+docker compose -f docker-compose.images.yml up -d --force-recreate
+```
+
+### 7.4 发版后检查
+
+```bash
+docker compose -f docker-compose.images.yml ps
+docker compose -f docker-compose.images.yml logs -f backend
+docker compose -f docker-compose.images.yml logs -f web
+```
+
+如果只是日常功能更新，按上面 4 步走就够了。

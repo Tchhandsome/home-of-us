@@ -7,6 +7,7 @@ import com.homeofus.plant.service.PlantService;
 import java.util.List;
 import java.util.Map;
 import javax.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -73,5 +74,27 @@ public class PlantController {
     public ApiResponse<List<Map<String, Object>>> findCareRecords(@PathVariable Long plantId) {
         return ApiResponse.ok(plantService.findCareRecords(plantId));
     }
-}
 
+    /**
+     * 删除花卉档案。
+     *
+     * @param plantId 花卉 ID
+     * @return 删除结果
+     */
+    @DeleteMapping("/{plantId}")
+    public ApiResponse<Map<String, Object>> deletePlant(@PathVariable Long plantId) {
+        return ApiResponse.ok(plantService.deletePlant(plantId));
+    }
+
+    /**
+     * 删除花卉养护记录。
+     *
+     * @param plantId 花卉 ID
+     * @param recordId 记录 ID
+     * @return 删除结果
+     */
+    @DeleteMapping("/{plantId}/care-records/{recordId}")
+    public ApiResponse<Map<String, Object>> deleteCareRecord(@PathVariable Long plantId, @PathVariable Long recordId) {
+        return ApiResponse.ok(plantService.deleteCareRecord(plantId, recordId));
+    }
+}

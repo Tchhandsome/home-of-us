@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -50,10 +51,10 @@ public class GlobalExceptionHandler {
      * @param exception 业务异常
      * @return 统一失败响应
      */
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
     @ExceptionHandler(BusinessException.class)
-    public ApiResponse<Void> handleBusinessException(BusinessException exception) {
-        return ApiResponse.failed(exception.getCode(), exception.getMessage());
+    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
+        HttpStatus status = "AUTH_REQUIRED".equals(exception.getCode()) ? HttpStatus.UNAUTHORIZED : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status).body(ApiResponse.failed(exception.getCode(), exception.getMessage()));
     }
 
     /**

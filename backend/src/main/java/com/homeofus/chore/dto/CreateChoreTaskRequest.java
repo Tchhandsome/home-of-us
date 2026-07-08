@@ -16,12 +16,15 @@ public class CreateChoreTaskRequest {
     @NotBlank(message = "chore.title.required")
     private String title;
 
+    private String taskScope;
+
     private Long assigneeId;
 
     private String taskType;
 
     private String cycleRule;
 
+    private String note;
+
     private String dueAt;
 }
-

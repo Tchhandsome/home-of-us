@@ -4,3 +4,10 @@ import "./styles.css";
 
 createApp(App).mount("#app");
 
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch((error: unknown) => {
+            console.warn("Service worker 注册失败", error);
+        });
+    });
+}

@@ -299,6 +299,101 @@ CREATE TABLE IF NOT EXISTS pet_medical_record (
     INDEX idx_pet_medical_family_date (family_id, record_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS member_preference (
+    id BIGINT PRIMARY KEY,
+    family_id BIGINT NOT NULL,
+    member_id BIGINT NOT NULL,
+    preference_key VARCHAR(80) NOT NULL,
+    preference_value TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    created_by BIGINT NULL,
+    updated_by BIGINT NULL,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_member_preference_member_key (member_id, preference_key),
+    INDEX idx_member_preference_family_member (family_id, member_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS family_vote (
+    id BIGINT PRIMARY KEY,
+    family_id BIGINT NOT NULL,
+    title VARCHAR(120) NOT NULL,
+    vote_category VARCHAR(40) NOT NULL,
+    status VARCHAR(30) NOT NULL,
+    decided_option_id BIGINT NULL,
+    decided_at DATETIME NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    created_by BIGINT NULL,
+    updated_by BIGINT NULL,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    INDEX idx_family_vote_family_status (family_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS family_vote_option (
+    id BIGINT PRIMARY KEY,
+    vote_id BIGINT NOT NULL,
+    family_id BIGINT NOT NULL,
+    option_text VARCHAR(120) NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    created_by BIGINT NULL,
+    updated_by BIGINT NULL,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    INDEX idx_family_vote_option_vote (vote_id, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS family_vote_choice (
+    id BIGINT PRIMARY KEY,
+    vote_id BIGINT NOT NULL,
+    family_id BIGINT NOT NULL,
+    member_id BIGINT NOT NULL,
+    option_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    created_by BIGINT NULL,
+    updated_by BIGINT NULL,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_family_vote_choice_vote_member (vote_id, member_id),
+    INDEX idx_family_vote_choice_vote (vote_id, option_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS recipe (
+    id BIGINT PRIMARY KEY,
+    family_id BIGINT NOT NULL,
+    title VARCHAR(120) NOT NULL,
+    meal_type VARCHAR(40) NULL,
+    ingredients_text TEXT NULL,
+    steps_text TEXT NULL,
+    preferred_member_ids TEXT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    created_by BIGINT NULL,
+    updated_by BIGINT NULL,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    INDEX idx_recipe_family_created (family_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS meal_plan (
+    id BIGINT PRIMARY KEY,
+    family_id BIGINT NOT NULL,
+    week_start DATE NOT NULL,
+    planned_on DATE NOT NULL,
+    meal_slot VARCHAR(40) NOT NULL,
+    recipe_id BIGINT NULL,
+    title_snapshot VARCHAR(120) NOT NULL,
+    remind_at DATETIME NULL,
+    shopping_synced TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    created_by BIGINT NULL,
+    updated_by BIGINT NULL,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    INDEX idx_meal_plan_family_week (family_id, week_start),
+    INDEX idx_meal_plan_family_day (family_id, planned_on)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 SET @ddl = (
     SELECT IF(COUNT(1) = 0,
         'ALTER TABLE family_member ADD COLUMN avatar_url VARCHAR(1000) NULL AFTER avatar_color',
@@ -316,6 +411,145 @@ SET @ddl = (
         'DO 0')
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'family_member' AND COLUMN_NAME = 'bio'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE chore_task ADD COLUMN task_scope VARCHAR(30) NOT NULL DEFAULT ''PERSONAL'' AFTER title',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chore_task' AND COLUMN_NAME = 'task_scope'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE chore_task ADD COLUMN owner_member_id BIGINT NULL AFTER task_scope',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chore_task' AND COLUMN_NAME = 'owner_member_id'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE chore_task ADD COLUMN note VARCHAR(500) NULL AFTER cycle_rule',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chore_task' AND COLUMN_NAME = 'note'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE album_photo ADD COLUMN entry_type VARCHAR(30) NOT NULL DEFAULT ''PHOTO'' AFTER family_id',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'album_photo' AND COLUMN_NAME = 'entry_type'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE album_photo ADD COLUMN wish_text TEXT NULL AFTER description',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'album_photo' AND COLUMN_NAME = 'wish_text'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE album_photo ADD COLUMN reminder_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER wish_text',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'album_photo' AND COLUMN_NAME = 'reminder_enabled'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE album_photo ADD COLUMN reminder_days_before INT NULL AFTER reminder_enabled',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'album_photo' AND COLUMN_NAME = 'reminder_days_before'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE album_photo ADD COLUMN next_remind_at DATETIME NULL AFTER reminder_days_before',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'album_photo' AND COLUMN_NAME = 'next_remind_at'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT 'ALTER TABLE album_photo MODIFY COLUMN image_url VARCHAR(1000) NULL'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE inventory_item ADD COLUMN item_type VARCHAR(30) NOT NULL DEFAULT ''SUPPLY'' AFTER name',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'inventory_item' AND COLUMN_NAME = 'item_type'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE inventory_item ADD COLUMN expires_on DATE NULL AFTER low_stock_threshold',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'inventory_item' AND COLUMN_NAME = 'expires_on'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE inventory_item ADD COLUMN reminder_days_before INT NULL AFTER expires_on',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'inventory_item' AND COLUMN_NAME = 'reminder_days_before'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl = (
+    SELECT IF(COUNT(1) = 0,
+        'ALTER TABLE inventory_item ADD COLUMN note VARCHAR(500) NULL AFTER reminder_days_before',
+        'DO 0')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'inventory_item' AND COLUMN_NAME = 'note'
 );
 PREPARE stmt FROM @ddl;
 EXECUTE stmt;

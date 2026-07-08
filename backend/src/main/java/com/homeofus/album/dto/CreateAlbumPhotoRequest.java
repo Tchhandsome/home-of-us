@@ -16,10 +16,17 @@ public class CreateAlbumPhotoRequest {
     @NotBlank(message = "album.title.required")
     private String title;
 
-    @NotBlank(message = "album.imageUrl.required")
     private String imageUrl;
 
+    private String entryType;
+
     private String description;
+
+    private String wishText;
+
+    private Boolean reminderEnabled;
+
+    private Integer reminderDaysBefore;
 
     private String takenOn;
 }

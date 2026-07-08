@@ -30,16 +30,17 @@ public class QuickRecordRepository {
      * @param request 创建请求
      * @param recordType 记录类型
      * @param happenedOn 发生日期
+     * @param operatorId 操作人
      * @param now 当前时间
      */
     public void insert(Long id, Long familyId, CreateQuickRecordRequest request, String recordType, LocalDate happenedOn,
-            LocalDateTime now) {
+            Long operatorId, LocalDateTime now) {
         jdbcTemplate.update(
                 "INSERT INTO quick_record (id, family_id, raw_text, record_type, linked_type, linked_id, happened_on, "
                         + "created_at, updated_at, created_by, updated_by, deleted) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
                 id, familyId, request.getRawText(), recordType, request.getLinkedType(), request.getLinkedId(),
-                happenedOn, now, now, 1001L, 1001L);
+                happenedOn, now, now, operatorId, operatorId);
     }
 
     /**
@@ -55,5 +56,20 @@ public class QuickRecordRepository {
                         + "FROM quick_record WHERE family_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
                 familyId, limit);
     }
-}
 
+    /**
+     * 删除快速记录。
+     *
+     * @param id 记录 ID
+     * @param familyId 家庭 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int delete(Long id, Long familyId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE quick_record SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE id = ? AND family_id = ? AND deleted = 0",
+                now, operatorId, id, familyId);
+    }
+}
