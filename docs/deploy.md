@@ -17,29 +17,23 @@ docker compose version
 
 这是第一版最省事的方式。
 
-在本机项目根目录打包代码：
+在本机项目根目录执行：
 
 ```bash
-tar --exclude='./node_modules' \
-    --exclude='./backend/target' \
-    --exclude='./apps/mobile/dist' \
-    --exclude='./apps/admin/dist' \
-    --exclude='./.git' \
-    --exclude='./data' \
-    -czf home-of-us.tar.gz .
+sh deploy/scripts/package-source.sh
 ```
 
 上传到服务器：
 
 ```bash
-scp home-of-us.tar.gz ubuntu@你的服务器IP:~/
+scp deploy/dist/home-of-us-source.tar.gz ubuntu@你的服务器IP:~/
 ```
 
 在服务器解压：
 
 ```bash
 mkdir -p ~/home-of-us
-tar -xzf ~/home-of-us.tar.gz -C ~/home-of-us
+tar -xzf ~/home-of-us-source.tar.gz -C ~/home-of-us
 cd ~/home-of-us
 ```
 
@@ -80,24 +74,24 @@ http://你的服务器IP/admin/
 
 如果不想把源码放到服务器，可以本机构建镜像，再用 tar 上传。
 
-如果你的 Mac 是 Apple Silicon，必须指定 `linux/amd64`：
+在本机项目根目录执行：
 
 ```bash
-docker buildx build --platform linux/amd64 -f backend/Dockerfile -t home-of-us-backend:latest --load .
-docker buildx build --platform linux/amd64 -f deploy/web/Dockerfile -t home-of-us-web:latest --load .
+sh deploy/scripts/package-images.sh
 ```
 
-打包镜像：
+脚本会先在本机执行后端和前端构建，然后把构建产物打进镜像。默认构建 `linux/amd64` 镜像，适配腾讯云轻量服务器。如果 Docker Desktop 没有启动，先启动 Docker Desktop 再执行。
 
-```bash
-docker save home-of-us-backend:latest home-of-us-web:latest | gzip > home-of-us-images.tar.gz
-tar -czf home-of-us-deploy.tar.gz docker-compose.images.yml .env.example
-```
+生成的镜像包包含：
+
+- `home-of-us-backend:latest`
+- `home-of-us-web:latest`
+- `mysql:8.0`
 
 上传：
 
 ```bash
-scp home-of-us-images.tar.gz home-of-us-deploy.tar.gz ubuntu@你的服务器IP:~/
+scp deploy/dist/home-of-us-images.tar.gz deploy/dist/home-of-us-deploy.tar.gz ubuntu@你的服务器IP:~/
 ```
 
 服务器加载镜像：

@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1.7
+
+FROM eclipse-temurin:17-jre-jammy
+
+ENV TZ=Asia/Shanghai
+ENV JAVA_OPTS="-Xms128m -Xmx512m"
+
+WORKDIR /app
+RUN mkdir -p /app/data/uploads
+
+COPY backend/target/home-of-us-backend-*.jar /app/app.jar
+
+EXPOSE 8080
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
