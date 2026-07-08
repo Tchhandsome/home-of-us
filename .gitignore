@@ -29,6 +29,9 @@ target/
 build/
 !**/src/main/**/build/
 !**/src/test/**/build/
+node_modules/
+apps/**/dist/
+apps/**/tsconfig.tsbuildinfo
 
 ### VS Code ###
 .vscode/
@@ -42,7 +45,6 @@ build/
 /.run/
 /data/
 /ai-temp/
-/AGENTS.md
 /i18n-report.json
 
 .cursor
@@ -50,7 +52,6 @@ build/
 .claude
 i18n-report.json
 .worktrees/
-/docs/
 
 .worktrees/
 moye-mcp-service/mcp_test_scripts/

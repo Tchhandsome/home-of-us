@@ -1,0 +1,23 @@
+{
+  "name": "home-of-us",
+  "version": "0.0.1",
+  "private": true,
+  "workspaces": [
+    "apps/shared",
+    "apps/mobile",
+    "apps/admin"
+  ],
+  "scripts": {
+    "build": "npm run build:mobile && npm run build:admin",
+    "build:mobile": "npm run build --workspace apps/mobile",
+    "build:admin": "npm run build --workspace apps/admin",
+    "dev:mobile": "npm run dev --workspace apps/mobile",
+    "dev:admin": "npm run dev --workspace apps/admin"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3",
+    "vue-tsc": "^2.1.10"
+  }
+}

@@ -1,0 +1,30 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: home-of-us-backend
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${HOME_OF_US_DB_HOST:127.0.0.1}:${HOME_OF_US_DB_PORT:3307}/${HOME_OF_US_DB_NAME:home_of_us}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: ${HOME_OF_US_DB_USERNAME:home_of_us}
+    password: ${HOME_OF_US_DB_PASSWORD:home_of_us_dev}
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+      schema-locations: classpath:db/migration/V1__init_schema.sql
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 25MB
+
+home-of-us:
+  upload:
+    root-dir: ${HOME_OF_US_UPLOAD_ROOT:data/uploads}
+
+logging:
+  level:
+    com.homeofus: INFO
