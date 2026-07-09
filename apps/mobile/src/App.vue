@@ -12,6 +12,7 @@ import {
 import {
   ArrowLeft,
   Bell,
+  BookOpen,
   Camera,
   ChefHat,
   Check,
@@ -20,6 +21,7 @@ import {
   Eye,
   EyeOff,
   GripVertical,
+  Heart,
   Home,
   ImagePlus,
   Leaf,
@@ -35,6 +37,8 @@ import {
   Send,
   Stethoscope,
   Sprout,
+  Sun,
+  Trees,
   Trash2,
   User,
   UserPlus,
@@ -112,6 +116,55 @@ type HomeCardDefinition = {
   tone: string;
   icon: Component;
 };
+type DrawerEntryKey = HomeCardKey | "flowers" | "familyMembers" | "coupleWorld" | "misc";
+type DrawerChildItem = {
+  key: HomeCardKey;
+  label: string;
+  value: string;
+};
+type DrawerEntry = {
+  key: DrawerEntryKey;
+  label: string;
+  value: string;
+  description: string;
+  tone: string;
+  icon: Component;
+  type: "single" | "group";
+  children: DrawerChildItem[];
+};
+type PlantLocationOption = {
+  value: string;
+  label: string;
+  icon: Component;
+};
+type PetQuickActionKey = "FEED" | "DEWORMING" | "BATH";
+type PetTaskTone = "calm" | "soon" | "late";
+type PetTaskFlowItem = {
+  key: PetQuickActionKey;
+  label: string;
+  description: string;
+  statusText: string;
+  metaText: string;
+  tone: PetTaskTone;
+  nextDueAt: string;
+};
+type PetWeightChartPoint = {
+  x: number;
+  y: number;
+  date: string;
+  shortDate: string;
+  value: number;
+  valueLabel: string;
+};
+type PetWeightChartModel = {
+  hasData: boolean;
+  polyline: string;
+  points: PetWeightChartPoint[];
+  minLabel: string;
+  maxLabel: string;
+  firstLabel: string;
+  lastLabel: string;
+};
 
 const defaultHomeCardOrder: HomeCardKey[] = [
   "todo",
@@ -129,6 +182,25 @@ const defaultHomeCardOrder: HomeCardKey[] = [
   "private",
   "profile"
 ];
+
+const plantLocationOptions: PlantLocationOption[] = [
+  { value: "室内", label: "室内", icon: Home },
+  { value: "室外", label: "室外", icon: Trees },
+  { value: "阳台", label: "阳台", icon: Sun },
+  { value: "书房", label: "书房", icon: BookOpen }
+];
+
+const drawerChildLabels: Partial<Record<HomeCardKey, string>> = {
+  members: "大人",
+  inventory: "物资"
+};
+
+const groupedDrawerChildren: Record<"flowers" | "familyMembers" | "coupleWorld" | "misc", HomeCardKey[]> = {
+  flowers: ["plants", "care"],
+  familyMembers: ["members", "pets"],
+  coupleWorld: ["album", "private"],
+  misc: ["inventory", "recipes"]
+};
 
 const activeTab = ref<TabKey>("today");
 const drawerOpen = ref(false);
@@ -182,6 +254,8 @@ const mealPlans = ref<AnyRow[]>([]);
 const pets = ref<AnyRow[]>([]);
 const petPhotos = ref<AnyRow[]>([]);
 const petMedicalRecords = ref<AnyRow[]>([]);
+const petCareRecords = ref<AnyRow[]>([]);
+const petWeightRecords = ref<AnyRow[]>([]);
 const selectedPetId = ref("");
 const reminderView = ref<ReminderViewKey>("list");
 const profileView = ref<ProfileViewKey>("detail");
@@ -201,7 +275,7 @@ const recipeView = ref<RecipeViewKey>("list");
 const shoppingView = ref<ShoppingViewKey>("list");
 const homeCardOrder = ref<HomeCardKey[]>([...defaultHomeCardOrder]);
 const savedHomeCardOrder = ref<HomeCardKey[]>([...defaultHomeCardOrder]);
-const homeCardDraggingKey = ref<HomeCardKey | "">("");
+const homeCardDraggingKey = ref<DrawerEntryKey | "">("");
 const actionKey = ref("");
 const selectedTodoId = ref("");
 const selectedPlantId = ref("");
@@ -244,6 +318,15 @@ const careDraft = ref({
   detail: "",
   nextCareAt: ""
 });
+const quickCareOpen = ref(false);
+const quickCareDraft = ref({
+  plantId: "",
+  careType: "WATER",
+  detail: "",
+  nextCareAt: ""
+});
+const plantAchievementVisible = ref(false);
+const plantAchievementKey = ref(0);
 const shoppingDraft = ref({
   name: "",
   quantity: "",
@@ -442,6 +525,19 @@ const petMedicalDraft = ref({
   description: "",
   nextDueAt: ""
 });
+const petQuickActionOpen = ref(false);
+const petQuickActionDraft = ref({
+  action: "FEED",
+  recordedAt: getNowDateTimeValue(),
+  description: "",
+  nextDueAt: ""
+});
+const petWeightOpen = ref(false);
+const petWeightDraft = ref({
+  weightKg: "",
+  recordedOn: getTodayDateValue(),
+  note: ""
+});
 const periodProfileDraft = ref({
   cycleDays: "28",
   periodDays: "5",
@@ -458,9 +554,36 @@ const periodRecordDraft = ref({
 
 const roleOptions = ["主人", "女主人", "男主人", "伴侣", "家庭成员", "家人", "宝宝", "宠物家长"];
 const weekDayLabels = ["一", "二", "三", "四", "五", "六", "日"];
+const petQuickActionDefinitions: Record<
+  PetQuickActionKey,
+  { label: string; description: string; intervalDays: number; warnDays: number; icon: Component }
+> = {
+  FEED: {
+    label: "喂食",
+    description: "记录日常进食节奏",
+    intervalDays: 1,
+    warnDays: 0,
+    icon: Heart
+  },
+  DEWORMING: {
+    label: "驱虫",
+    description: "记录体内外驱虫安排",
+    intervalDays: 90,
+    warnDays: 10,
+    icon: Stethoscope
+  },
+  BATH: {
+    label: "洗澡",
+    description: "记录清洁打理节奏",
+    intervalDays: 30,
+    warnDays: 5,
+    icon: Droplets
+  }
+};
 
 let messageTimer: number | undefined;
 let refreshTimer: number | undefined;
+let plantAchievementTimer: number | undefined;
 
 const pendingReminders = computed(() => reminders.value.filter((item) => text(item, "status") === "PENDING"));
 const pendingPlantCareReminders = computed(() =>
@@ -482,7 +605,30 @@ const periodPrediction = computed<AnyRow>(() => ((periodSummary.value.prediction
 const currentPlant = computed(() =>
   plants.value.find((plant) => text(plant, "id") === selectedPlantId.value)
 );
+const quickCarePlant = computed(() =>
+  plants.value.find((plant) => text(plant, "id") === quickCareDraft.value.plantId)
+);
 const nextPendingPlantCareReminder = computed<AnyRow | null>(() => pendingPlantCareReminders.value[0] ?? null);
+const plantCareDaysThisMonth = computed(() => {
+  const monthPrefix = getTodayDateValue().slice(0, 7);
+  const careDays = new Set<string>();
+  allCareRecords.value.forEach((record) => {
+    const careDate = text(record, "care_date");
+    if (careDate.startsWith(monthPrefix)) {
+      careDays.add(careDate);
+    }
+  });
+  return careDays.size;
+});
+const plantOverviewSummary = computed(() => {
+  if (pendingPlantCareReminders.value.length > 0) {
+    return `还有 ${pendingPlantCareReminders.value.length} 条待养护`;
+  }
+  if (plants.value.length > 0) {
+    return `当前已整理 ${plants.value.length} 盆花花`;
+  }
+  return "开始记录第一盆花花吧";
+});
 const myTodoTasks = computed(() =>
   openTodoTasks.value.filter((item) => hasTaskAssignee(item, String(currentUser.value.memberId ?? "")))
 );
@@ -522,6 +668,20 @@ const currentMember = computed(() =>
 const currentPet = computed(() =>
   pets.value.find((pet) => text(pet, "id") === selectedPetId.value)
 );
+const latestPetWeightRecord = computed<AnyRow | null>(() => petWeightRecords.value[petWeightRecords.value.length - 1] ?? null);
+const petReminderCandidates = computed(() =>
+  [...petCareRecords.value, ...petMedicalRecords.value]
+    .filter((item) => text(item, "next_due_at"))
+    .sort((left, right) => {
+      const leftTime = dateTimeFromValue(text(left, "next_due_at"))?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const rightTime = dateTimeFromValue(text(right, "next_due_at"))?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      return leftTime - rightTime;
+    })
+);
+const petNextReminderItem = computed<AnyRow | null>(() => petReminderCandidates.value[0] ?? null);
+const petReminderCount = computed(() => petReminderCandidates.value.length);
+const petTaskFlowItems = computed(() => buildPetTaskFlowItems());
+const petWeightChartPoints = computed(() => buildPetWeightChartPoints(petWeightRecords.value));
 const currentMemoryEntry = computed(() =>
   albumPhotos.value.find((item) => text(item, "id") === selectedMemoryId.value)
 );
@@ -626,7 +786,9 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
     key: "pets",
     label: "宠物",
     value: `${pets.value.length}只`,
-    description: "档案、照片、医疗记录",
+    description: petNextReminderItem.value
+      ? `下次${petReminderItemLabel(petNextReminderItem.value)} ${relativeDaysLabel(text(petNextReminderItem.value, "next_due_at"))}`
+      : "档案、照片和动态提醒",
     tone: "tile-gold",
     icon: PawPrint
   },
@@ -655,7 +817,82 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
     icon: User
   }
 }));
-const homeCards = computed(() => homeCardOrder.value.map((key) => homeCardDefinitions.value[key]));
+const drawerGroupDefinitions = computed<
+  Record<"flowers" | "familyMembers" | "coupleWorld" | "misc", Omit<DrawerEntry, "children" | "type">>
+>(() => ({
+  flowers: {
+    key: "flowers",
+    label: "花花",
+    value: `${plants.value.length}盆 · ${pendingPlantCareReminders.value.length}待养护`,
+    description: "花卉档案和养护打卡放在一起",
+    tone: "tile-green",
+    icon: Leaf
+  },
+  familyMembers: {
+    key: "familyMembers",
+    label: "家庭成员",
+    value: `${familyMembers.value.length}位 · ${pets.value.length}只`,
+    description: "大人和宠物统一管理",
+    tone: "tile-ink",
+    icon: Users
+  },
+  coupleWorld: {
+    key: "coupleWorld",
+    label: "二人世界",
+    value: `${albumPhotos.value.length}条时刻 · ${privateMessages.value.length}条留言`,
+    description: "纪念时刻和悄悄话都在这里",
+    tone: "tile-coral",
+    icon: Heart
+  },
+  misc: {
+    key: "misc",
+    label: "杂项",
+    value: `${lowInventoryItems.value.length}项提醒 · ${recipes.value.length}道菜`,
+    description: "物资和菜谱先收纳到一处",
+    tone: "tile-emerald",
+    icon: Package
+  }
+}));
+const drawerEntries = computed<DrawerEntry[]>(() => {
+  const seen = new Set<DrawerEntryKey>();
+  const entries: DrawerEntry[] = [];
+  homeCardOrder.value.forEach((cardKey) => {
+    const entryKey = drawerEntryKeyOfCard(cardKey);
+    if (seen.has(entryKey)) {
+      return;
+    }
+    seen.add(entryKey);
+    if (isGroupedDrawerEntryKey(entryKey)) {
+      const groupDefinition = drawerGroupDefinitions.value[entryKey];
+      const children = homeCardOrder.value
+        .filter((key) => groupedDrawerChildren[entryKey].includes(key))
+        .map((key) => ({
+          key,
+          label: drawerChildLabel(key),
+          value: homeCardDefinitions.value[key].value
+        }));
+      entries.push({
+        ...groupDefinition,
+        type: "group",
+        children
+      });
+      return;
+    }
+    const definition = homeCardDefinitions.value[cardKey];
+    entries.push({
+      ...definition,
+      type: "single",
+      children: [
+        {
+          key: cardKey,
+          label: drawerChildLabel(cardKey),
+          value: definition.value
+        }
+      ]
+    });
+  });
+  return entries;
+});
 const familyTitle = computed(() => {
   const familyRow = family.value.family;
   return text((familyRow as AnyRow) ?? {}, "name") || "我们的小家";
@@ -745,6 +982,34 @@ function isHomeCardKey(value: string): value is HomeCardKey {
   return defaultHomeCardOrder.includes(value as HomeCardKey);
 }
 
+function isGroupedDrawerEntryKey(value: DrawerEntryKey): value is keyof typeof groupedDrawerChildren {
+  return value in groupedDrawerChildren;
+}
+
+function drawerEntryKeyOfCard(cardKey: HomeCardKey): DrawerEntryKey {
+  if (groupedDrawerChildren.flowers.includes(cardKey)) {
+    return "flowers";
+  }
+  if (groupedDrawerChildren.familyMembers.includes(cardKey)) {
+    return "familyMembers";
+  }
+  if (groupedDrawerChildren.coupleWorld.includes(cardKey)) {
+    return "coupleWorld";
+  }
+  if (groupedDrawerChildren.misc.includes(cardKey)) {
+    return "misc";
+  }
+  return cardKey;
+}
+
+function drawerChildLabel(cardKey: HomeCardKey): string {
+  return drawerChildLabels[cardKey] || homeCardDefinitions.value[cardKey].label;
+}
+
+function togglePlantLocation(target: typeof plantDraft.value | typeof plantEditDraft.value, location: string) {
+  target.location = target.location === location ? "" : location;
+}
+
 function text(row: AnyRow, key: string): string {
   const value = row[key];
   if (value === undefined || value === null) {
@@ -772,6 +1037,15 @@ function getTodayDateValue(): string {
   const month = `${now.getMonth() + 1}`.padStart(2, "0");
   const day = `${now.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getNowDateTimeValue(baseDate = new Date()): string {
+  const year = baseDate.getFullYear();
+  const month = `${baseDate.getMonth() + 1}`.padStart(2, "0");
+  const day = `${baseDate.getDate()}`.padStart(2, "0");
+  const hour = `${baseDate.getHours()}`.padStart(2, "0");
+  const minute = `${baseDate.getMinutes()}`.padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
 function getMonthStartValue(baseDate = new Date()): string {
@@ -882,19 +1156,33 @@ function readHomeCardOrder(data: AnyRow): HomeCardKey[] {
   return normalizeHomeCardOrder(cardKeys.map((item) => String(item)));
 }
 
-function moveHomeCard(dragKey: HomeCardKey, targetKey: HomeCardKey) {
-  if (dragKey === targetKey) {
+function isDrawerEntryKey(value: string): value is DrawerEntryKey {
+  return value === "flowers" || value === "familyMembers" || value === "coupleWorld" || value === "misc" || isHomeCardKey(value);
+}
+
+function cardKeysOfDrawerEntry(entryKey: DrawerEntryKey): HomeCardKey[] {
+  if (isGroupedDrawerEntryKey(entryKey)) {
+    return homeCardOrder.value.filter((cardKey) => groupedDrawerChildren[entryKey].includes(cardKey));
+  }
+  return [entryKey];
+}
+
+function moveDrawerEntry(dragEntryKey: DrawerEntryKey, targetEntryKey: DrawerEntryKey) {
+  if (dragEntryKey === targetEntryKey) {
     return;
   }
-  const nextOrder = [...homeCardOrder.value];
-  const fromIndex = nextOrder.indexOf(dragKey);
-  const targetIndex = nextOrder.indexOf(targetKey);
-  if (fromIndex < 0 || targetIndex < 0) {
+  const dragKeys = cardKeysOfDrawerEntry(dragEntryKey);
+  const targetKeys = cardKeysOfDrawerEntry(targetEntryKey);
+  if (dragKeys.length === 0 || targetKeys.length === 0) {
     return;
   }
-  nextOrder.splice(fromIndex, 1);
-  nextOrder.splice(targetIndex, 0, dragKey);
-  homeCardOrder.value = nextOrder;
+  const nextOrder = homeCardOrder.value.filter((key) => !dragKeys.includes(key));
+  const targetIndex = nextOrder.indexOf(targetKeys[0]);
+  if (targetIndex < 0) {
+    return;
+  }
+  nextOrder.splice(targetIndex, 0, ...dragKeys);
+  homeCardOrder.value = normalizeHomeCardOrder(nextOrder);
 }
 
 function roleLabel(code: string): string {
@@ -1014,6 +1302,243 @@ function daysUntil(value: Date): number {
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0).getTime();
   const target = new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0).getTime();
   return Math.max(0, Math.round((target - start) / 86400000));
+}
+
+function daysFromToday(value: string): number | null {
+  const parsed = dateTimeFromValue(value);
+  if (!parsed) {
+    return null;
+  }
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0).getTime();
+  const target = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 0, 0, 0, 0).getTime();
+  return Math.round((target - start) / 86400000);
+}
+
+function relativeDaysLabel(value: string): string {
+  const diff = daysFromToday(value);
+  if (diff === null) {
+    return "时间待补充";
+  }
+  if (diff === 0) {
+    return "就在今天";
+  }
+  if (diff > 0) {
+    return `还有 ${diff} 天`;
+  }
+  return `已逾期 ${Math.abs(diff)} 天`;
+}
+
+function relativeDaysTone(value: string, warnDays = 3): PetTaskTone {
+  const diff = daysFromToday(value);
+  if (diff === null) {
+    return "calm";
+  }
+  if (diff < 0) {
+    return "late";
+  }
+  if (diff <= warnDays) {
+    return "soon";
+  }
+  return "calm";
+}
+
+function elapsedDaysLabel(value: string): string {
+  const diff = daysFromToday(value);
+  if (diff === null) {
+    return "时间待补充";
+  }
+  if (diff === 0) {
+    return "今天刚记录";
+  }
+  if (diff > 0) {
+    return `还要 ${diff} 天`;
+  }
+  return `已过去 ${Math.abs(diff)} 天`;
+}
+
+function elapsedDaysTone(value: string, intervalDays: number, warnDays: number): PetTaskTone {
+  const diff = daysFromToday(value);
+  if (diff === null) {
+    return "calm";
+  }
+  const daysPassed = Math.abs(Math.min(diff, 0));
+  if (daysPassed > intervalDays) {
+    return "late";
+  }
+  if (daysPassed >= Math.max(0, intervalDays - warnDays)) {
+    return "soon";
+  }
+  return "calm";
+}
+
+function petCareTypeLabel(code: string): string {
+  return petQuickActionDefinitions[code as PetQuickActionKey]?.label ?? code;
+}
+
+function petQuickActionIcon(code: string): Component {
+  return petQuickActionDefinitions[code as PetQuickActionKey]?.icon ?? Heart;
+}
+
+function petReminderItemLabel(item: AnyRow): string {
+  const careType = text(item, "care_type");
+  if (careType) {
+    return petCareTypeLabel(careType);
+  }
+  return petRecordTypeLabel(text(item, "record_type"));
+}
+
+function petAgeLabel(birthday: string): string {
+  const birth = dateFromValue(birthday);
+  if (!birth) {
+    return "";
+  }
+  const today = new Date();
+  let years = today.getFullYear() - birth.getFullYear();
+  let months = today.getMonth() - birth.getMonth();
+  let days = today.getDate() - birth.getDate();
+  if (days < 0) {
+    months -= 1;
+    const lastMonthDays = new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+    days += lastMonthDays;
+  }
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+  const parts: string[] = [];
+  if (years > 0) {
+    parts.push(`${years}岁`);
+  }
+  if (months > 0 || years > 0) {
+    parts.push(`${months}个月`);
+  }
+  parts.push(`${Math.max(days, 0)}天`);
+  return parts.join("");
+}
+
+function petLastEventAt(record: AnyRow): string {
+  return text(record, "recorded_at") || text(record, "record_date");
+}
+
+function recentPetRecord(records: AnyRow[], dateField: string): AnyRow | null {
+  return [...records]
+    .sort((left, right) => {
+      const leftTime = dateTimeFromValue(text(left, dateField))?.getTime() ?? 0;
+      const rightTime = dateTimeFromValue(text(right, dateField))?.getTime() ?? 0;
+      return rightTime - leftTime;
+    })[0] ?? null;
+}
+
+function buildPetTaskFlowItems(): PetTaskFlowItem[] {
+  const buildItem = (key: PetQuickActionKey): PetTaskFlowItem => {
+    const definition = petQuickActionDefinitions[key];
+    const careMatches = petCareRecords.value.filter((item) => text(item, "care_type") === key);
+    const medicalMatches = key === "DEWORMING"
+      ? petMedicalRecords.value.filter((item) => text(item, "record_type") === "DEWORMING")
+      : [];
+    const reminderSource = [...careMatches, ...medicalMatches]
+      .filter((item) => text(item, "next_due_at"))
+      .sort((left, right) => {
+        const leftTime = dateTimeFromValue(text(left, "next_due_at"))?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const rightTime = dateTimeFromValue(text(right, "next_due_at"))?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        return leftTime - rightTime;
+      })[0] ?? null;
+    const latestSource =
+      recentPetRecord(careMatches, "recorded_at") ??
+      recentPetRecord(medicalMatches, "record_date");
+    const nextDueAt = text(reminderSource ?? {}, "next_due_at");
+    if (nextDueAt) {
+      return {
+        key,
+        label: definition.label,
+        description: definition.description,
+        statusText: `下次${definition.label}：${relativeDaysLabel(nextDueAt)}`,
+        metaText: formatDateTime(nextDueAt),
+        tone: relativeDaysTone(nextDueAt, definition.warnDays),
+        nextDueAt
+      };
+    }
+    const lastAt = petLastEventAt(latestSource ?? {});
+    if (lastAt) {
+      return {
+        key,
+        label: definition.label,
+        description: definition.description,
+        statusText: `上次${definition.label}：${elapsedDaysLabel(lastAt)}`,
+        metaText: `最近记录：${formatDateTime(lastAt)}`,
+        tone: elapsedDaysTone(lastAt, definition.intervalDays, definition.warnDays),
+        nextDueAt: ""
+      };
+    }
+    return {
+      key,
+      label: definition.label,
+      description: definition.description,
+      statusText: `还没有${definition.label}记录`,
+      metaText: "可以先用下面的快捷操作补第一条",
+      tone: "calm",
+      nextDueAt: ""
+    };
+  };
+  return (Object.keys(petQuickActionDefinitions) as PetQuickActionKey[]).map((key) => buildItem(key));
+}
+
+function buildPetWeightChartPoints(records: AnyRow[]): PetWeightChartModel {
+  const sorted = [...records].sort((left, right) => {
+    const leftTime = dateTimeFromValue(text(left, "recorded_on"))?.getTime() ?? 0;
+    const rightTime = dateTimeFromValue(text(right, "recorded_on"))?.getTime() ?? 0;
+    return leftTime - rightTime;
+  });
+  const points = sorted
+    .map((record) => ({
+      date: text(record, "recorded_on"),
+      value: Number(text(record, "weight_kg"))
+    }))
+    .filter((item) => item.date && Number.isFinite(item.value));
+  if (points.length === 0) {
+    return {
+      hasData: false,
+      polyline: "",
+      points: [],
+      minLabel: "",
+      maxLabel: "",
+      firstLabel: "",
+      lastLabel: ""
+    };
+  }
+  const width = 280;
+  const height = 132;
+  const paddingX = 12;
+  const paddingY = 16;
+  const values = points.map((item) => item.value);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const safeRange = maxValue === minValue ? 1 : maxValue - minValue;
+  const mappedPoints: PetWeightChartPoint[] = points.map((point, index) => {
+    const x =
+      points.length === 1
+        ? width / 2
+        : paddingX + (index * (width - paddingX * 2)) / Math.max(1, points.length - 1);
+    const y = height - paddingY - ((point.value - minValue) / safeRange) * (height - paddingY * 2);
+    return {
+      x,
+      y,
+      date: point.date,
+      shortDate: point.date.slice(5),
+      value: point.value,
+      valueLabel: `${point.value.toFixed(1)}kg`
+    };
+  });
+  return {
+    hasData: true,
+    polyline: mappedPoints.map((point) => `${point.x},${point.y}`).join(" "),
+    points: mappedPoints,
+    minLabel: `${minValue.toFixed(1)}kg`,
+    maxLabel: `${maxValue.toFixed(1)}kg`,
+    firstLabel: mappedPoints[0]?.shortDate ?? "",
+    lastLabel: mappedPoints[mappedPoints.length - 1]?.shortDate ?? ""
+  };
 }
 
 function memoryCountdownLabel(entry: AnyRow): string {
@@ -1451,6 +1976,22 @@ function resetPlantDraft() {
   plantFile.value = null;
 }
 
+function resetCareDraft(plantId = "") {
+  careDraft.value.plantId = plantId;
+  careDraft.value.careType = "WATER";
+  careDraft.value.detail = "";
+  careDraft.value.nextCareAt = "";
+}
+
+function resetQuickCareDraft(plantId = "") {
+  quickCareDraft.value = {
+    plantId,
+    careType: "WATER",
+    detail: "",
+    nextCareAt: ""
+  };
+}
+
 function syncPlantEditDraft(plant: AnyRow) {
   plantEditDraft.value = {
     id: text(plant, "id"),
@@ -1665,9 +2206,40 @@ function resetPetEditDraft() {
   petEditAvatarFile.value = null;
 }
 
+function resetPetQuickActionDraft(action: PetQuickActionKey = "FEED") {
+  petQuickActionDraft.value = {
+    action,
+    recordedAt: getNowDateTimeValue(),
+    description: "",
+    nextDueAt: ""
+  };
+}
+
+function resetPetWeightDraft() {
+  petWeightDraft.value = {
+    weightKg: "",
+    recordedOn: getTodayDateValue(),
+    note: ""
+  };
+}
+
+function triggerPlantAchievement() {
+  plantAchievementKey.value += 1;
+  plantAchievementVisible.value = true;
+  if (plantAchievementTimer) {
+    window.clearTimeout(plantAchievementTimer);
+  }
+  plantAchievementTimer = window.setTimeout(() => {
+    plantAchievementVisible.value = false;
+  }, 1400);
+}
+
 function openTab(tab: TabKey) {
   activeTab.value = tab;
   drawerOpen.value = false;
+  quickCareOpen.value = false;
+  petQuickActionOpen.value = false;
+  petWeightOpen.value = false;
   if (tab === "todo") {
     todoView.value = "list";
   }
@@ -1714,6 +2286,9 @@ function openTab(tab: TabKey) {
 
 function goHome() {
   drawerOpen.value = false;
+  quickCareOpen.value = false;
+  petQuickActionOpen.value = false;
+  petWeightOpen.value = false;
   activeTab.value = "today";
 }
 
@@ -1879,11 +2454,15 @@ function startEditPlant(plant: AnyRow) {
 }
 
 function startCreateCareRecord() {
-  careDraft.value.plantId = selectedPlantId.value || text(plants.value[0] ?? {}, "id");
-  careDraft.value.careType = "WATER";
-  careDraft.value.detail = "";
-  careDraft.value.nextCareAt = "";
+  resetCareDraft(selectedPlantId.value || text(plants.value[0] ?? {}, "id"));
   careView.value = "create";
+}
+
+function startQuickCare(plant: AnyRow) {
+  const plantId = text(plant, "id");
+  selectedPlantId.value = plantId;
+  resetQuickCareDraft(plantId);
+  quickCareOpen.value = true;
 }
 
 function startCreateShopping() {
@@ -2014,6 +2593,26 @@ function startEditPet() {
   petView.value = "edit";
 }
 
+function openPetQuickAction(action: PetQuickActionKey) {
+  if (!selectedPetId.value) {
+    showMessage("请先选择宠物", "error");
+    return;
+  }
+  resetPetQuickActionDraft(action);
+  petWeightOpen.value = false;
+  petQuickActionOpen.value = true;
+}
+
+function openPetWeightCreate() {
+  if (!selectedPetId.value) {
+    showMessage("请先选择宠物", "error");
+    return;
+  }
+  resetPetWeightDraft();
+  petQuickActionOpen.value = false;
+  petWeightOpen.value = true;
+}
+
 function openPetPhotos() {
   petView.value = "photos";
 }
@@ -2059,16 +2658,16 @@ async function persistHomeCardOrder() {
   }
 }
 
-function beginHomeCardDrag(cardKey: HomeCardKey, event: PointerEvent) {
+function beginHomeCardDrag(cardKey: DrawerEntryKey, event: PointerEvent) {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return;
   }
   homeCardDraggingKey.value = cardKey;
   const handlePointerMove = (moveEvent: PointerEvent) => {
     const element = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
-    const targetKey = element?.closest("[data-home-card-key]")?.getAttribute("data-home-card-key") || "";
-    if (isHomeCardKey(targetKey)) {
-      moveHomeCard(cardKey, targetKey);
+    const targetKey = element?.closest("[data-drawer-entry-key]")?.getAttribute("data-drawer-entry-key") || "";
+    if (isDrawerEntryKey(targetKey)) {
+      moveDrawerEntry(cardKey, targetKey);
     }
   };
   const handlePointerEnd = () => {
@@ -2117,6 +2716,10 @@ function showMessage(textValue: string, type: ToastType = "success", timeout = 2
 }
 
 function resetDataState() {
+  if (plantAchievementTimer) {
+    window.clearTimeout(plantAchievementTimer);
+    plantAchievementTimer = undefined;
+  }
   drawerOpen.value = false;
   currentUser.value = {};
   family.value = {};
@@ -2163,6 +2766,8 @@ function resetDataState() {
   pets.value = [];
   petPhotos.value = [];
   petMedicalRecords.value = [];
+  petCareRecords.value = [];
+  petWeightRecords.value = [];
   selectedTodoId.value = "";
   selectedPlantId.value = "";
   selectedMemoryId.value = "";
@@ -2171,6 +2776,14 @@ function resetDataState() {
   selectedRecipeId.value = "";
   selectedPetId.value = "";
   visibleMonth.value = getMonthStartValue();
+  quickCareOpen.value = false;
+  petQuickActionOpen.value = false;
+  petWeightOpen.value = false;
+  plantAchievementVisible.value = false;
+  resetQuickCareDraft();
+  resetPetQuickActionDraft();
+  resetPetWeightDraft();
+  resetCareDraft();
   plantView.value = "list";
   careView.value = "list";
   todoView.value = "list";
@@ -2986,30 +3599,57 @@ async function deletePlant(id: number) {
   });
 }
 
-async function submitCareRecord() {
-  const plantId = Number(careDraft.value.plantId || selectedPlantId.value || plants.value[0]?.id);
-  if (!Number.isFinite(plantId)) {
+async function saveCareRecord(
+  plantId: number,
+  draft: { careType: string; detail: string; nextCareAt: string },
+  actionName: string,
+  successMessage: string
+) {
+  if (!Number.isFinite(plantId) || plantId <= 0) {
     showMessage("请先选择花卉", "error");
-    return;
+    return false;
   }
-  if (!careDraft.value.detail.trim()) {
+  const detail = draft.detail.trim();
+  if (!detail) {
     showMessage("请先填写养护内容", "error");
-    return;
+    return false;
   }
-  await executeAction("care-create", "保存养护记录失败", async () => {
+  let created = false;
+  await executeAction(actionName, "保存养护记录失败", async () => {
     await api.createCareRecord(plantId, {
-      careType: careDraft.value.careType,
-      detail: careDraft.value.detail,
-      rawText: careDraft.value.detail,
-      nextCareAt: careDraft.value.nextCareAt
+      careType: draft.careType,
+      careDate: getTodayDateValue(),
+      detail,
+      rawText: detail,
+      nextCareAt: draft.nextCareAt || undefined
     });
     selectedPlantId.value = String(plantId);
-    careDraft.value.detail = "";
-    careDraft.value.nextCareAt = "";
-    careView.value = "list";
     await loadAll();
-    showMessage("养护记录已保存");
+    triggerPlantAchievement();
+    showMessage(successMessage);
+    created = true;
   });
+  return created;
+}
+
+async function submitCareRecord() {
+  const plantId = Number(careDraft.value.plantId || selectedPlantId.value || plants.value[0]?.id);
+  const saved = await saveCareRecord(plantId, careDraft.value, "care-create", "养护记录已保存");
+  if (!saved) {
+    return;
+  }
+  resetCareDraft(String(plantId));
+  careView.value = "list";
+}
+
+async function submitQuickCareRecord() {
+  const plantId = Number(quickCareDraft.value.plantId);
+  const saved = await saveCareRecord(plantId, quickCareDraft.value, `care-quick-${plantId}`, "已标记今日养护");
+  if (!saved) {
+    return;
+  }
+  resetQuickCareDraft(String(plantId));
+  quickCareOpen.value = false;
 }
 
 async function deleteCareRecord(id: number) {
@@ -3461,8 +4101,58 @@ async function submitPetMedicalRecord() {
       nextDueAt: ""
     };
     petView.value = "medical";
-    await loadPetDetails();
+    const [, reminderData, todayData] = await Promise.all([loadPetDetails(true), api.reminders(), api.today()]);
+    reminders.value = reminderData;
+    today.value = todayData;
     showMessage("宠物医疗记录已保存");
+  });
+}
+
+async function submitPetQuickAction() {
+  const petId = Number(selectedPetId.value);
+  if (!Number.isFinite(petId) || petId <= 0) {
+    showMessage("请先选择宠物", "error");
+    return;
+  }
+  const actionCode = petQuickActionDraft.value.action as PetQuickActionKey;
+  const safeDescription = petQuickActionDraft.value.description.trim() || `${petCareTypeLabel(actionCode)}已完成`;
+  await executeAction("pet-quick-action", "保存快捷护理失败", async () => {
+    await api.createPetCareRecord(petId, {
+      careType: actionCode,
+      recordedAt: petQuickActionDraft.value.recordedAt || getNowDateTimeValue(),
+      description: safeDescription,
+      nextDueAt: petQuickActionDraft.value.nextDueAt || undefined
+    });
+    petQuickActionOpen.value = false;
+    resetPetQuickActionDraft(actionCode);
+    const [, reminderData, todayData] = await Promise.all([loadPetDetails(true), api.reminders(), api.today()]);
+    reminders.value = reminderData;
+    today.value = todayData;
+    showMessage(`${petCareTypeLabel(actionCode)}已记录`);
+  });
+}
+
+async function submitPetWeightRecord() {
+  const petId = Number(selectedPetId.value);
+  const weightKg = Number(petWeightDraft.value.weightKg);
+  if (!Number.isFinite(petId) || petId <= 0) {
+    showMessage("请先选择宠物", "error");
+    return;
+  }
+  if (!Number.isFinite(weightKg) || weightKg <= 0) {
+    showMessage("请输入正确的体重", "error");
+    return;
+  }
+  await executeAction("pet-weight-create", "保存体重记录失败", async () => {
+    await api.createPetWeightRecord(petId, {
+      weightKg,
+      recordedOn: petWeightDraft.value.recordedOn || getTodayDateValue(),
+      note: petWeightDraft.value.note || undefined
+    });
+    petWeightOpen.value = false;
+    resetPetWeightDraft();
+    await loadPetDetails();
+    showMessage("体重已记录");
   });
 }
 
@@ -3482,12 +4172,21 @@ async function loadPetDetails(silent = false) {
   if (!Number.isFinite(petId) || petId <= 0) {
     petPhotos.value = [];
     petMedicalRecords.value = [];
+    petCareRecords.value = [];
+    petWeightRecords.value = [];
     return;
   }
   try {
-    const [photoData, medicalData] = await Promise.all([api.petPhotos(petId), api.petMedicalRecords(petId)]);
+    const [photoData, medicalData, careData, weightData] = await Promise.all([
+      api.petPhotos(petId),
+      api.petMedicalRecords(petId),
+      api.petCareRecords(petId),
+      api.petWeightRecords(petId)
+    ]);
     petPhotos.value = photoData;
     petMedicalRecords.value = medicalData;
+    petCareRecords.value = careData;
+    petWeightRecords.value = weightData;
   } catch (error) {
     if (silent) {
       throw error;
@@ -3530,7 +4229,9 @@ async function deletePetMedicalRecord(id: number) {
   }
   await executeAction(`pet-medical-delete-${id}`, "删除医疗记录失败", async () => {
     await api.deletePetMedicalRecord(petId, id);
-    await loadPetDetails();
+    const [, reminderData, todayData] = await Promise.all([loadPetDetails(true), api.reminders(), api.today()]);
+    reminders.value = reminderData;
+    today.value = todayData;
     showMessage("医疗记录已删除");
   });
 }
@@ -3546,6 +4247,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopAutoRefresh();
+  if (plantAchievementTimer) {
+    window.clearTimeout(plantAchievementTimer);
+    plantAchievementTimer = undefined;
+  }
   if (typeof window === "undefined") {
     return;
   }
@@ -3674,12 +4379,12 @@ watch(
       </div>
       <div class="drawer-list">
         <article
-          v-for="entry in homeCards"
+          v-for="entry in drawerEntries"
           :key="entry.key"
-          :data-home-card-key="entry.key"
+          :data-drawer-entry-key="entry.key"
           :class="['drawer-module-card', entry.tone, { dragging: homeCardDraggingKey === entry.key }]"
         >
-          <button class="drawer-module-open" type="button" @click="openTab(entry.key)">
+          <button v-if="entry.type === 'single'" class="drawer-module-open" type="button" @click="openTab(entry.children[0].key)">
             <component :is="entry.icon" :size="18" />
             <div class="drawer-module-copy">
               <div class="drawer-module-head">
@@ -3689,6 +4394,32 @@ watch(
               <span>{{ entry.description }}</span>
             </div>
           </button>
+          <div v-else class="drawer-group-shell">
+            <div class="drawer-group-head">
+              <span class="drawer-group-mark">
+                <component :is="entry.icon" :size="18" />
+              </span>
+              <div class="drawer-module-copy">
+                <div class="drawer-module-head">
+                  <strong>{{ entry.label }}</strong>
+                  <small>{{ entry.value }}</small>
+                </div>
+                <span>{{ entry.description }}</span>
+              </div>
+            </div>
+            <div class="drawer-group-children">
+              <button
+                v-for="child in entry.children"
+                :key="child.key"
+                class="drawer-child-button"
+                type="button"
+                @click="openTab(child.key)"
+              >
+                <span>{{ child.label }}</span>
+                <small>{{ child.value }}</small>
+              </button>
+            </div>
+          </div>
           <button
             class="home-module-grip"
             type="button"
@@ -3963,14 +4694,32 @@ watch(
 
     <section v-if="activeTab === 'plants'" class="view">
       <template v-if="plantView === 'list'">
-        <article class="list-card">
+        <article class="list-card plant-dashboard-card">
           <div class="section-title">
-            <h2>花卉列表</h2>
-            <button class="icon-button" type="button" aria-label="新增花卉" title="新增花卉" @click="startCreatePlant()">
-              <Plus :size="18" />
+            <div class="plant-dashboard-copy">
+              <h2>本月已照顾植物 {{ plantCareDaysThisMonth }} 天</h2>
+              <p>{{ plantOverviewSummary }}</p>
+            </div>
+            <button class="secondary-button compact-button plant-add-button" type="button" @click="startCreatePlant()">
+              <Plus :size="17" />
+              <span>新增花卉</span>
             </button>
           </div>
-          <p v-if="plants.length === 0" class="empty">还没有花卉档案</p>
+          <div class="summary-strip plant-summary-strip">
+            <article class="mini-metric">
+              <span>花花数量</span>
+              <strong>{{ plants.length }}盆</strong>
+            </article>
+            <article class="mini-metric">
+              <span>本月照顾</span>
+              <strong>{{ plantCareDaysThisMonth }}天</strong>
+            </article>
+            <article class="mini-metric">
+              <span>待养护</span>
+              <strong>{{ pendingPlantCareReminders.length }}条</strong>
+            </article>
+          </div>
+          <p v-if="plants.length === 0" class="empty">还没有花卉档案，先把第一盆花花放进来吧。</p>
         </article>
         <article
           v-for="plant in plants"
@@ -3991,7 +4740,10 @@ watch(
           </span>
           <div class="plant-copy">
             <h3>{{ text(plant, "name") }}</h3>
-            <p>{{ text(plant, "flower_color") || "未记录花色" }} · {{ text(plant, "location") || "未记录位置" }}</p>
+            <div v-if="text(plant, 'flower_color') || text(plant, 'location')" class="plant-tag-row">
+              <span v-if="text(plant, 'flower_color')" class="plant-meta-chip">{{ text(plant, "flower_color") }}</span>
+              <span v-if="text(plant, 'location')" class="plant-meta-chip location">{{ text(plant, "location") }}</span>
+            </div>
             <small v-if="text(plant, 'care_preference')">{{ text(plant, "care_preference") }}</small>
           </div>
           <div class="plant-side">
@@ -4011,6 +4763,10 @@ watch(
               </button>
             </div>
           </div>
+          <button class="secondary-button compact-button plant-quick-button" type="button" @click.stop="startQuickCare(plant)">
+            <Sprout :size="16" />
+            <span>今日已养护</span>
+          </button>
         </article>
       </template>
 
@@ -4030,7 +4786,22 @@ watch(
         <input v-model="plantDraft.name" placeholder="名称，如月季" />
         <div class="inline-fields">
           <input v-model="plantDraft.flowerColor" placeholder="花色" />
-          <input v-model="plantDraft.location" placeholder="位置" />
+          <input v-model="plantDraft.location" placeholder="也可以手动填写其他位置" />
+        </div>
+        <div class="field-stack">
+          <span class="field-label">快捷位置</span>
+          <div class="option-chip-group">
+            <button
+              v-for="option in plantLocationOptions"
+              :key="`plant-location-${option.value}`"
+              :class="['option-chip', { active: plantDraft.location === option.value }]"
+              type="button"
+              @click="togglePlantLocation(plantDraft, option.value)"
+            >
+              <component :is="option.icon" :size="15" />
+              <span>{{ option.label }}</span>
+            </button>
+          </div>
         </div>
         <input v-model="plantDraft.carePreference" placeholder="养护偏好" />
         <div class="inline-fields">
@@ -4064,7 +4835,22 @@ watch(
         <input v-model="plantEditDraft.name" placeholder="名称，如月季" />
         <div class="inline-fields">
           <input v-model="plantEditDraft.flowerColor" placeholder="花色" />
-          <input v-model="plantEditDraft.location" placeholder="位置" />
+          <input v-model="plantEditDraft.location" placeholder="也可以手动填写其他位置" />
+        </div>
+        <div class="field-stack">
+          <span class="field-label">快捷位置</span>
+          <div class="option-chip-group">
+            <button
+              v-for="option in plantLocationOptions"
+              :key="`plant-edit-location-${option.value}`"
+              :class="['option-chip', { active: plantEditDraft.location === option.value }]"
+              type="button"
+              @click="togglePlantLocation(plantEditDraft, option.value)"
+            >
+              <component :is="option.icon" :size="15" />
+              <span>{{ option.label }}</span>
+            </button>
+          </div>
         </div>
         <input v-model="plantEditDraft.carePreference" placeholder="养护偏好" />
         <div class="inline-fields">
@@ -5362,68 +6148,168 @@ watch(
         </button>
       </article>
 
-      <article v-else-if="petView === 'detail' && currentPet" class="list-card pet-focus">
-        <div class="section-title">
-          <h2>{{ text(currentPet, "name") }} 的档案</h2>
-          <div class="row-actions">
-            <button class="icon-button" type="button" aria-label="编辑宠物" title="编辑宠物" @click="startEditPet()">
-              <Pencil :size="17" />
+      <template v-else-if="petView === 'detail' && currentPet">
+        <article class="list-card pet-focus pet-detail-hero">
+          <div class="section-title">
+            <h2>{{ text(currentPet, "name") }} 的档案</h2>
+            <div class="row-actions">
+              <button class="icon-button" type="button" aria-label="编辑宠物" title="编辑宠物" @click="startEditPet()">
+                <Pencil :size="17" />
+              </button>
+              <button
+                class="icon-button danger-icon-button"
+                :disabled="isSubmitting(`pet-delete-${numberValue(currentPet, 'id')}`)"
+                type="button"
+                aria-label="删除宠物"
+                title="删除宠物"
+                @click="deletePet(numberValue(currentPet, 'id'))"
+              >
+                <Trash2 :size="17" />
+              </button>
+            </div>
+          </div>
+          <div class="pet-overview">
+            <img
+              v-if="text(currentPet, 'avatar_url')"
+              :src="text(currentPet, 'avatar_url')"
+              :alt="text(currentPet, 'name')"
+              loading="lazy"
+              decoding="async"
+            />
+            <span v-else class="pet-placeholder pet-hero">
+              <PawPrint :size="28" />
+            </span>
+            <div>
+              <strong>{{ text(currentPet, "name") }}</strong>
+              <p>{{ speciesLabel(text(currentPet, "species")) }} · {{ text(currentPet, "breed") || "未记录品种" }}</p>
+              <p>{{ petGenderLabel(text(currentPet, "gender")) }} · {{ petAgeLabel(text(currentPet, "birthday")) || "未记录年龄" }}</p>
+              <p v-if="text(currentPet, 'birthday')" class="muted">生日：{{ text(currentPet, "birthday") }}</p>
+              <p>{{ text(currentPet, "note") || "还没有补充备注" }}</p>
+            </div>
+          </div>
+          <div class="summary-strip pet-summary-strip">
+            <article class="mini-metric">
+              <span>照片</span>
+              <strong>{{ petPhotos.length }}</strong>
+              <small>随手记录日常瞬间</small>
+            </article>
+            <article class="mini-metric">
+              <span>医疗记录</span>
+              <strong>{{ petMedicalRecords.length }}</strong>
+              <small>疫苗、体检和用药都在这里</small>
+            </article>
+            <article class="mini-metric">
+              <span>待提醒</span>
+              <strong>{{ petReminderCount }}条</strong>
+              <small v-if="petNextReminderItem">
+                下次{{ petReminderItemLabel(petNextReminderItem) }} {{ relativeDaysLabel(text(petNextReminderItem, "next_due_at")) }}
+              </small>
+              <small v-else>暂时没有新的时间提醒</small>
+            </article>
+          </div>
+        </article>
+
+        <article class="list-card">
+          <div class="section-title">
+            <h2>快捷操作栏</h2>
+            <span>点一下就能记一条</span>
+          </div>
+          <div class="pet-quick-grid">
+            <button class="secondary-button pet-quick-button" type="button" @click="openPetQuickAction('FEED')">
+              <Heart :size="17" />
+              <span>喂食</span>
             </button>
-            <button
-              class="icon-button danger-icon-button"
-              :disabled="isSubmitting(`pet-delete-${numberValue(currentPet, 'id')}`)"
-              type="button"
-              aria-label="删除宠物"
-              title="删除宠物"
-              @click="deletePet(numberValue(currentPet, 'id'))"
+            <button class="secondary-button pet-quick-button" type="button" @click="openPetQuickAction('DEWORMING')">
+              <Stethoscope :size="17" />
+              <span>驱虫</span>
+            </button>
+            <button class="secondary-button pet-quick-button" type="button" @click="openPetQuickAction('BATH')">
+              <Droplets :size="17" />
+              <span>洗澡</span>
+            </button>
+          </div>
+        </article>
+
+        <article class="list-card">
+          <div class="section-title">
+            <h2>待办任务流</h2>
+            <span>{{ petTaskFlowItems.length }}项</span>
+          </div>
+          <div class="pet-task-list">
+            <article
+              v-for="item in petTaskFlowItems"
+              :key="item.key"
+              :class="['pet-task-card', `pet-task-${item.tone}`]"
             >
-              <Trash2 :size="17" />
+              <div class="pet-task-head">
+                <span class="pet-task-icon">
+                  <component :is="petQuickActionDefinitions[item.key].icon" :size="16" />
+                </span>
+                <div>
+                  <strong>{{ item.label }}</strong>
+                  <small>{{ item.description }}</small>
+                </div>
+              </div>
+              <p>{{ item.statusText }}</p>
+              <small>{{ item.metaText }}</small>
+            </article>
+          </div>
+        </article>
+
+        <article class="list-card pet-weight-card">
+          <div class="section-title">
+            <h2>体重曲线</h2>
+            <button class="icon-button" type="button" aria-label="记录体重" title="记录体重" @click="openPetWeightCreate()">
+              <Plus :size="18" />
             </button>
           </div>
-        </div>
-        <div class="pet-overview">
-          <img
-            v-if="text(currentPet, 'avatar_url')"
-            :src="text(currentPet, 'avatar_url')"
-            :alt="text(currentPet, 'name')"
-            loading="lazy"
-            decoding="async"
-          />
-          <span v-else class="pet-placeholder pet-hero">
-            <PawPrint :size="28" />
-          </span>
-          <div>
-            <strong>{{ text(currentPet, "name") }}</strong>
-            <p>{{ speciesLabel(text(currentPet, "species")) }} · {{ text(currentPet, "breed") || "未记录品种" }}</p>
-            <p>{{ petGenderLabel(text(currentPet, "gender")) }} · {{ text(currentPet, "birthday") || "未记录生日" }}</p>
-            <p>{{ text(currentPet, "note") || "还没有补充备注" }}</p>
+          <p v-if="!petWeightChartPoints.hasData" class="empty">还没有体重记录，建议每月补一次，健康变化会更直观。</p>
+          <template v-else>
+            <div class="pet-weight-summary">
+              <div>
+                <strong>{{ numberValue(latestPetWeightRecord ?? {}, "weight_kg").toFixed(1) }}kg</strong>
+                <span>最近记录：{{ text(latestPetWeightRecord ?? {}, "recorded_on") }}</span>
+              </div>
+              <small>{{ petWeightChartPoints.minLabel }} - {{ petWeightChartPoints.maxLabel }}</small>
+            </div>
+            <div class="pet-weight-chart">
+              <svg viewBox="0 0 280 132" role="img" aria-label="宠物体重曲线">
+                <line x1="12" y1="116" x2="268" y2="116" class="pet-weight-baseline" />
+                <polyline :points="petWeightChartPoints.polyline" class="pet-weight-line" />
+                <g v-for="point in petWeightChartPoints.points" :key="`${point.date}-${point.value}`">
+                  <circle :cx="point.x" :cy="point.y" r="4" class="pet-weight-point" />
+                </g>
+              </svg>
+            </div>
+            <div class="pet-weight-axis">
+              <span>{{ petWeightChartPoints.firstLabel }}</span>
+              <span>{{ petWeightChartPoints.lastLabel }}</span>
+            </div>
+            <div class="pet-weight-log">
+              <span v-for="record in [...petWeightRecords].slice(-3).reverse()" :key="text(record, 'id')">
+                {{ text(record, "recorded_on").slice(5) }} · {{ numberValue(record, "weight_kg").toFixed(1) }}kg
+              </span>
+            </div>
+          </template>
+        </article>
+
+        <article class="list-card">
+          <div class="section-title">
+            <h2>更多资料</h2>
+            <span>继续查看详情</span>
           </div>
-        </div>
-        <div class="summary-strip">
-          <article class="mini-metric">
-            <span>照片</span>
-            <strong>{{ petPhotos.length }}</strong>
-          </article>
-          <article class="mini-metric">
-            <span>医疗记录</span>
-            <strong>{{ petMedicalRecords.length }}</strong>
-          </article>
-          <article class="mini-metric">
-            <span>待提醒</span>
-            <strong>{{ petMedicalRecords.filter((item) => text(item, "next_due_at")).length }}</strong>
-          </article>
-        </div>
-        <div class="section-actions-grid">
-          <button class="secondary-button" type="button" @click="openPetPhotos()">
-            <Camera :size="17" />
-            <span>照片列表</span>
-          </button>
-          <button class="secondary-button" type="button" @click="openPetMedical()">
-            <Stethoscope :size="17" />
-            <span>医疗记录</span>
-          </button>
-        </div>
-      </article>
+          <div class="section-actions-grid">
+            <button class="secondary-button" type="button" @click="openPetPhotos()">
+              <Camera :size="17" />
+              <span>照片列表</span>
+            </button>
+            <button class="secondary-button" type="button" @click="openPetMedical()">
+              <Stethoscope :size="17" />
+              <span>医疗记录</span>
+            </button>
+          </div>
+        </article>
+      </template>
 
       <article v-else-if="petView === 'edit'" class="form-card pet-form">
         <div class="section-title">
@@ -5528,10 +6414,24 @@ watch(
           </button>
         </div>
         <p v-if="petMedicalRecords.length === 0" class="empty">还没有医疗记录</p>
-        <div v-for="record in petMedicalRecords" :key="text(record, 'id')" class="feed-item feed-item-actions">
+        <div
+          v-for="record in petMedicalRecords"
+          :key="text(record, 'id')"
+          :class="[
+            'feed-item',
+            'feed-item-actions',
+            text(record, 'next_due_at') ? `pet-task-${relativeDaysTone(text(record, 'next_due_at'), 10)}` : 'pet-task-calm'
+          ]"
+        >
           <span>{{ petRecordTypeLabel(text(record, "record_type")) }} · {{ text(record, "record_date") || "未记录日期" }}</span>
           <p>{{ text(record, "description") }}</p>
-          <span v-if="text(record, 'next_due_at')">下次提醒：{{ formatDateTime(text(record, "next_due_at")) }}</span>
+          <small v-if="text(record, 'hospital') || text(record, 'medicine')">
+            {{ text(record, "hospital") || "护理地点待补充" }}
+            <template v-if="text(record, 'medicine')"> · {{ text(record, "medicine") }}</template>
+          </small>
+          <span v-if="text(record, 'next_due_at')" :class="['pet-inline-countdown', `pet-inline-countdown-${relativeDaysTone(text(record, 'next_due_at'), 10)}`]">
+            下次提醒：{{ formatDateTime(text(record, "next_due_at")) }} · {{ relativeDaysLabel(text(record, "next_due_at")) }}
+          </span>
           <button
             class="text-button danger-button"
             :disabled="isSubmitting(`pet-medical-delete-${numberValue(record, 'id')}`)"
@@ -5579,6 +6479,115 @@ watch(
           <span>保存医疗记录</span>
         </button>
       </article>
+    </section>
+    <div v-if="quickCareOpen" class="drawer-backdrop" @click="quickCareOpen = false" />
+    <section v-if="quickCareOpen" class="quick-care-sheet">
+      <div class="section-title">
+        <div>
+          <p class="eyebrow">一键标记</p>
+          <h2>{{ text(quickCarePlant ?? {}, "name") || "今日已养护" }}</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="关闭快捷养护" title="关闭快捷养护" @click="quickCareOpen = false">
+          <ArrowLeft :size="18" />
+        </button>
+      </div>
+      <div class="inline-fields">
+        <div class="field-stack">
+          <span class="field-label">养护类型</span>
+          <select v-model="quickCareDraft.careType">
+            <option value="WATER">浇水</option>
+            <option value="FERTILIZE">施肥</option>
+            <option value="PRUNE">修剪</option>
+            <option value="OBSERVE">观察</option>
+          </select>
+        </div>
+        <div class="field-stack">
+          <span class="field-label">下次养护时间</span>
+          <input v-model="quickCareDraft.nextCareAt" type="datetime-local" />
+        </div>
+      </div>
+      <textarea v-model="quickCareDraft.detail" rows="3" placeholder="写下今天做了什么，植物现在状态如何" />
+      <button class="secondary-button" :disabled="isSubmitting(`care-quick-${quickCareDraft.plantId}`)" type="button" @click="submitQuickCareRecord">
+        <LoaderCircle v-if="isSubmitting(`care-quick-${quickCareDraft.plantId}`)" class="spin" :size="17" />
+        <Sprout v-else :size="17" />
+        <span>完成今日养护</span>
+      </button>
+    </section>
+    <transition name="achievement-pop">
+      <div v-if="plantAchievementVisible" :key="plantAchievementKey" class="plant-achievement-pop">
+        <Leaf :size="18" />
+        <strong>守护天数 +1</strong>
+        <span>今天也把花花照顾得很好</span>
+      </div>
+    </transition>
+    <div
+      v-if="petQuickActionOpen || petWeightOpen"
+      class="drawer-backdrop"
+      @click="
+        petQuickActionOpen = false;
+        petWeightOpen = false;
+      "
+    />
+    <section v-if="petQuickActionOpen" class="quick-care-sheet pet-sheet">
+      <div class="section-title">
+        <div>
+          <p class="eyebrow">宠物快捷记录</p>
+          <h2>{{ text(currentPet ?? {}, "name") }} · {{ petCareTypeLabel(petQuickActionDraft.action) }}</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="关闭快捷护理" title="关闭快捷护理" @click="petQuickActionOpen = false">
+          <ArrowLeft :size="18" />
+        </button>
+      </div>
+      <div class="inline-fields">
+        <div class="field-stack">
+          <span class="field-label">操作类型</span>
+          <select v-model="petQuickActionDraft.action">
+            <option value="FEED">喂食</option>
+            <option value="DEWORMING">驱虫</option>
+            <option value="BATH">洗澡</option>
+          </select>
+        </div>
+        <div class="field-stack">
+          <span class="field-label">记录时间</span>
+          <input v-model="petQuickActionDraft.recordedAt" type="datetime-local" />
+        </div>
+      </div>
+      <div class="field-stack">
+        <span class="field-label">下次提醒</span>
+        <input v-model="petQuickActionDraft.nextDueAt" type="datetime-local" />
+      </div>
+      <small class="muted">留空就只记录本次，不生成新的提醒时间。</small>
+      <textarea
+        v-model="petQuickActionDraft.description"
+        rows="3"
+        :placeholder="`补充${petCareTypeLabel(petQuickActionDraft.action)}细节，比如状态、剂量或反应`"
+      />
+      <button class="secondary-button" :disabled="isSubmitting('pet-quick-action')" type="button" @click="submitPetQuickAction">
+        <LoaderCircle v-if="isSubmitting('pet-quick-action')" class="spin" :size="17" />
+        <component v-else :is="petQuickActionIcon(petQuickActionDraft.action)" :size="17" />
+        <span>保存快捷记录</span>
+      </button>
+    </section>
+    <section v-if="petWeightOpen" class="quick-care-sheet pet-sheet">
+      <div class="section-title">
+        <div>
+          <p class="eyebrow">健康记录</p>
+          <h2>{{ text(currentPet ?? {}, "name") }} · 记录体重</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="关闭体重记录" title="关闭体重记录" @click="petWeightOpen = false">
+          <ArrowLeft :size="18" />
+        </button>
+      </div>
+      <div class="inline-fields">
+        <input v-model="petWeightDraft.weightKg" inputmode="decimal" placeholder="体重（kg）" />
+        <input v-model="petWeightDraft.recordedOn" type="date" />
+      </div>
+      <textarea v-model="petWeightDraft.note" rows="3" placeholder="比如空腹、饭后、最近状态" />
+      <button class="secondary-button" :disabled="isSubmitting('pet-weight-create')" type="button" @click="submitPetWeightRecord">
+        <LoaderCircle v-if="isSubmitting('pet-weight-create')" class="spin" :size="17" />
+        <Plus v-else :size="17" />
+        <span>保存体重记录</span>
+      </button>
     </section>
     <datalist id="role-options">
       <option v-for="item in roleOptions" :key="item" :value="item" />

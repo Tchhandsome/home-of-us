@@ -1,8 +1,10 @@
 package com.homeofus.pet.repository;
 
+import com.homeofus.pet.dto.CreatePetCareRecordRequest;
 import com.homeofus.pet.dto.CreatePetMedicalRecordRequest;
 import com.homeofus.pet.dto.CreatePetPhotoRequest;
 import com.homeofus.pet.dto.CreatePetRequest;
+import com.homeofus.pet.dto.CreatePetWeightRecordRequest;
 import com.homeofus.pet.dto.UpdatePetRequest;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -184,6 +186,79 @@ public class PetRepository {
     }
 
     /**
+     * 新增宠物护理记录。
+     *
+     * @param id 主键
+     * @param familyId 家庭 ID
+     * @param petId 宠物 ID
+     * @param request 创建请求
+     * @param careType 护理类型
+     * @param recordedAt 记录时间
+     * @param nextDueAt 下次提醒时间
+     * @param operatorId 操作人
+     * @param now 当前时间
+     */
+    public void insertCareRecord(Long id, Long familyId, Long petId, CreatePetCareRecordRequest request,
+            String careType, LocalDateTime recordedAt, LocalDateTime nextDueAt, Long operatorId, LocalDateTime now) {
+        jdbcTemplate.update(
+                "INSERT INTO pet_care_record (id, family_id, pet_id, care_type, recorded_at, description, next_due_at, "
+                        + "created_at, updated_at, created_by, updated_by, deleted) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                id, familyId, petId, careType, recordedAt, request.getDescription(), nextDueAt, now, now, operatorId,
+                operatorId);
+    }
+
+    /**
+     * 查询宠物护理记录。
+     *
+     * @param familyId 家庭 ID
+     * @param petId 宠物 ID
+     * @return 护理记录
+     */
+    public List<Map<String, Object>> findCareRecords(Long familyId, Long petId) {
+        return jdbcTemplate.queryForList(
+                "SELECT id, family_id, pet_id, care_type, recorded_at, description, next_due_at, created_at "
+                        + "FROM pet_care_record WHERE family_id = ? AND pet_id = ? AND deleted = 0 "
+                        + "ORDER BY recorded_at DESC, created_at DESC",
+                familyId, petId);
+    }
+
+    /**
+     * 新增宠物体重记录。
+     *
+     * @param id 主键
+     * @param familyId 家庭 ID
+     * @param petId 宠物 ID
+     * @param request 创建请求
+     * @param recordedOn 记录日期
+     * @param operatorId 操作人
+     * @param now 当前时间
+     */
+    public void insertWeightRecord(Long id, Long familyId, Long petId, CreatePetWeightRecordRequest request,
+            LocalDate recordedOn, Long operatorId, LocalDateTime now) {
+        jdbcTemplate.update(
+                "INSERT INTO pet_weight_record (id, family_id, pet_id, weight_kg, recorded_on, note, created_at, "
+                        + "updated_at, created_by, updated_by, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                id, familyId, petId, request.getWeightKg(), recordedOn, request.getNote(), now, now, operatorId,
+                operatorId);
+    }
+
+    /**
+     * 查询宠物体重记录。
+     *
+     * @param familyId 家庭 ID
+     * @param petId 宠物 ID
+     * @return 体重记录
+     */
+    public List<Map<String, Object>> findWeightRecords(Long familyId, Long petId) {
+        return jdbcTemplate.queryForList(
+                "SELECT id, family_id, pet_id, weight_kg, recorded_on, note, created_at "
+                        + "FROM pet_weight_record WHERE family_id = ? AND pet_id = ? AND deleted = 0 "
+                        + "ORDER BY recorded_on ASC, created_at ASC",
+                familyId, petId);
+    }
+
+    /**
      * 查询宠物医疗记录。
      *
      * @param familyId 家庭 ID
@@ -260,6 +335,38 @@ public class PetRepository {
     public int deleteMedicalRecordsByPet(Long familyId, Long petId, Long operatorId, LocalDateTime now) {
         return jdbcTemplate.update(
                 "UPDATE pet_medical_record SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE family_id = ? AND pet_id = ? AND deleted = 0",
+                now, operatorId, familyId, petId);
+    }
+
+    /**
+     * 删除宠物全部护理记录。
+     *
+     * @param familyId 家庭 ID
+     * @param petId 宠物 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int deleteCareRecordsByPet(Long familyId, Long petId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE pet_care_record SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE family_id = ? AND pet_id = ? AND deleted = 0",
+                now, operatorId, familyId, petId);
+    }
+
+    /**
+     * 删除宠物全部体重记录。
+     *
+     * @param familyId 家庭 ID
+     * @param petId 宠物 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int deleteWeightRecordsByPet(Long familyId, Long petId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE pet_weight_record SET deleted = 1, updated_at = ?, updated_by = ? "
                         + "WHERE family_id = ? AND pet_id = ? AND deleted = 0",
                 now, operatorId, familyId, petId);
     }

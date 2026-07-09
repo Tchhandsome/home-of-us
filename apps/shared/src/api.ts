@@ -210,6 +210,19 @@ export type CreatePetMedicalRecordPayload = {
   nextDueAt?: string;
 };
 
+export type CreatePetCareRecordPayload = {
+  careType?: string;
+  recordedAt?: string;
+  description?: string;
+  nextDueAt?: string;
+};
+
+export type CreatePetWeightRecordPayload = {
+  weightKg: number | string;
+  recordedOn?: string;
+  note?: string;
+};
+
 export type SavePeriodProfilePayload = {
   cycleDays?: number;
   periodDays?: number;
@@ -581,5 +594,17 @@ export const api = {
   deletePetMedicalRecord: (petId: number, recordId: number) =>
     request<AnyRow>(`/pets/${petId}/medical-records/${recordId}`, {
       method: "DELETE"
+    }),
+  petCareRecords: (petId: number) => request<AnyRow[]>(`/pets/${petId}/care-records`),
+  createPetCareRecord: (petId: number, payload: CreatePetCareRecordPayload) =>
+    request<AnyRow>(`/pets/${petId}/care-records`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  petWeightRecords: (petId: number) => request<AnyRow[]>(`/pets/${petId}/weight-records`),
+  createPetWeightRecord: (petId: number, payload: CreatePetWeightRecordPayload) =>
+    request<AnyRow>(`/pets/${petId}/weight-records`, {
+      method: "POST",
+      body: JSON.stringify(payload)
     })
 };

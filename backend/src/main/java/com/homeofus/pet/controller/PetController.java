@@ -1,9 +1,11 @@
 package com.homeofus.pet.controller;
 
 import com.homeofus.common.api.ApiResponse;
+import com.homeofus.pet.dto.CreatePetCareRecordRequest;
 import com.homeofus.pet.dto.CreatePetMedicalRecordRequest;
 import com.homeofus.pet.dto.CreatePetPhotoRequest;
 import com.homeofus.pet.dto.CreatePetRequest;
+import com.homeofus.pet.dto.CreatePetWeightRecordRequest;
 import com.homeofus.pet.dto.UpdatePetRequest;
 import com.homeofus.pet.service.PetService;
 import java.util.List;
@@ -113,6 +115,54 @@ public class PetController {
     @GetMapping("/{petId}/medical-records")
     public ApiResponse<List<Map<String, Object>>> findMedicalRecords(@PathVariable Long petId) {
         return ApiResponse.ok(petService.findMedicalRecords(petId));
+    }
+
+    /**
+     * 创建宠物护理记录。
+     *
+     * @param petId 宠物 ID
+     * @param request 创建请求
+     * @return 新记录 ID
+     */
+    @PostMapping("/{petId}/care-records")
+    public ApiResponse<Map<String, Object>> createCareRecord(@PathVariable Long petId,
+            @Valid @RequestBody CreatePetCareRecordRequest request) {
+        return ApiResponse.ok(petService.createCareRecord(petId, request));
+    }
+
+    /**
+     * 查询宠物护理记录。
+     *
+     * @param petId 宠物 ID
+     * @return 护理记录
+     */
+    @GetMapping("/{petId}/care-records")
+    public ApiResponse<List<Map<String, Object>>> findCareRecords(@PathVariable Long petId) {
+        return ApiResponse.ok(petService.findCareRecords(petId));
+    }
+
+    /**
+     * 创建宠物体重记录。
+     *
+     * @param petId 宠物 ID
+     * @param request 创建请求
+     * @return 新记录 ID
+     */
+    @PostMapping("/{petId}/weight-records")
+    public ApiResponse<Map<String, Object>> createWeightRecord(@PathVariable Long petId,
+            @Valid @RequestBody CreatePetWeightRecordRequest request) {
+        return ApiResponse.ok(petService.createWeightRecord(petId, request));
+    }
+
+    /**
+     * 查询宠物体重记录。
+     *
+     * @param petId 宠物 ID
+     * @return 体重记录
+     */
+    @GetMapping("/{petId}/weight-records")
+    public ApiResponse<List<Map<String, Object>>> findWeightRecords(@PathVariable Long petId) {
+        return ApiResponse.ok(petService.findWeightRecords(petId));
     }
 
     /**

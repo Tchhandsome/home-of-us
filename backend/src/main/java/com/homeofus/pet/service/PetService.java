@@ -6,9 +6,11 @@ import com.homeofus.common.jdbc.IdGenerator;
 import com.homeofus.common.time.TimeProvider;
 import com.homeofus.common.web.CurrentUser;
 import com.homeofus.common.web.CurrentUserProvider;
+import com.homeofus.pet.dto.CreatePetCareRecordRequest;
 import com.homeofus.pet.dto.CreatePetMedicalRecordRequest;
 import com.homeofus.pet.dto.CreatePetPhotoRequest;
 import com.homeofus.pet.dto.CreatePetRequest;
+import com.homeofus.pet.dto.CreatePetWeightRecordRequest;
 import com.homeofus.pet.dto.UpdatePetRequest;
 import com.homeofus.pet.repository.PetRepository;
 import com.homeofus.reminder.service.ReminderService;
@@ -28,6 +30,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class PetService {
+
+    private static final String PET_CARE_SOURCE_TYPE = "PET_CARE";
 
     private final PetRepository petRepository;
 
@@ -146,6 +150,64 @@ public class PetService {
     }
 
     /**
+     * 创建宠物护理记录。
+     *
+     * @param petId 宠物 ID
+     * @param request 创建请求
+     * @return 新记录 ID
+     */
+    public Map<String, Object> createCareRecord(Long petId, CreatePetCareRecordRequest request) {
+        ensurePetExists(petId);
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        Long id = idGenerator.nextId();
+        String careType = StringUtils.defaultIfBlank(request.getCareType(), "FEED");
+        LocalDateTime recordedAt = parseDateTimeOrNow(request.getRecordedAt());
+        LocalDateTime nextDueAt = parseDateTime(request.getNextDueAt());
+        petRepository.insertCareRecord(id, DefaultFamily.FAMILY_ID, petId, request, careType, recordedAt, nextDueAt,
+                currentUser.getUserId(), timeProvider.now());
+        createCareReminder(petId, id, careType, request.getDescription(), nextDueAt);
+        return Map.of("id", id);
+    }
+
+    /**
+     * 查询宠物护理记录。
+     *
+     * @param petId 宠物 ID
+     * @return 护理记录
+     */
+    public List<Map<String, Object>> findCareRecords(Long petId) {
+        ensurePetExists(petId);
+        return petRepository.findCareRecords(DefaultFamily.FAMILY_ID, petId);
+    }
+
+    /**
+     * 创建宠物体重记录。
+     *
+     * @param petId 宠物 ID
+     * @param request 创建请求
+     * @return 新记录 ID
+     */
+    public Map<String, Object> createWeightRecord(Long petId, CreatePetWeightRecordRequest request) {
+        ensurePetExists(petId);
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        Long id = idGenerator.nextId();
+        petRepository.insertWeightRecord(id, DefaultFamily.FAMILY_ID, petId, request,
+                parseDateOrToday(request.getRecordedOn()), currentUser.getUserId(), timeProvider.now());
+        return Map.of("id", id);
+    }
+
+    /**
+     * 查询宠物体重记录。
+     *
+     * @param petId 宠物 ID
+     * @return 体重记录
+     */
+    public List<Map<String, Object>> findWeightRecords(Long petId) {
+        ensurePetExists(petId);
+        return petRepository.findWeightRecords(DefaultFamily.FAMILY_ID, petId);
+    }
+
+    /**
      * 删除宠物档案。
      *
      * @param petId 宠物 ID
@@ -156,8 +218,13 @@ public class PetService {
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         List<Map<String, Object>> medicalRecords = petRepository.findMedicalRecords(DefaultFamily.FAMILY_ID, petId);
         medicalRecords.forEach(record -> reminderService.deleteBySource("PET_MEDICAL", numberValue(record, "id")));
+        List<Map<String, Object>> careRecords = petRepository.findCareRecords(DefaultFamily.FAMILY_ID, petId);
+        careRecords.forEach(record -> reminderService.deleteBySource(PET_CARE_SOURCE_TYPE, numberValue(record, "id")));
         petRepository.deletePhotosByPet(DefaultFamily.FAMILY_ID, petId, currentUser.getUserId(), timeProvider.now());
         petRepository.deleteMedicalRecordsByPet(DefaultFamily.FAMILY_ID, petId, currentUser.getUserId(),
+                timeProvider.now());
+        petRepository.deleteCareRecordsByPet(DefaultFamily.FAMILY_ID, petId, currentUser.getUserId(), timeProvider.now());
+        petRepository.deleteWeightRecordsByPet(DefaultFamily.FAMILY_ID, petId, currentUser.getUserId(),
                 timeProvider.now());
         int updated = petRepository.deletePet(DefaultFamily.FAMILY_ID, petId, currentUser.getUserId(),
                 timeProvider.now());
@@ -220,6 +287,19 @@ public class PetService {
         reminderService.createFromSource(title, description, "PET_MEDICAL", recordId, nextDueAt);
     }
 
+    private void createCareReminder(Long petId, Long recordId, String careType, String description,
+            LocalDateTime nextDueAt) {
+        if (Objects.isNull(nextDueAt)) {
+            return;
+        }
+        String petName = String.valueOf(petRepository.findPet(petId, DefaultFamily.FAMILY_ID)
+                .orElseThrow(() -> new BusinessException("PET_NOT_FOUND", "pet.notFound"))
+                .get("name"));
+        String title = petName + "下次" + petCareTypeLabel(careType);
+        reminderService.createFromSource(title, StringUtils.defaultIfBlank(description, title), PET_CARE_SOURCE_TYPE,
+                recordId, nextDueAt);
+    }
+
     private LocalDate parseDate(String value) {
         if (StringUtils.isBlank(value)) {
             return null;
@@ -233,10 +313,18 @@ public class PetService {
 
     private LocalDate parseDateOrToday(String value) {
         LocalDate date = parseDate(value);
-        if (java.util.Objects.isNull(date)) {
+        if (Objects.isNull(date)) {
             return timeProvider.today();
         }
         return date;
+    }
+
+    private LocalDateTime parseDateTimeOrNow(String value) {
+        LocalDateTime dateTime = parseDateTime(value);
+        if (Objects.isNull(dateTime)) {
+            return timeProvider.now();
+        }
+        return dateTime;
     }
 
     private LocalDateTime parseDateTime(String value) {
@@ -256,5 +344,16 @@ public class PetService {
             return ((Number) value).longValue();
         }
         throw new BusinessException("PET_MEDICAL_RECORD_NOT_FOUND", "宠物医疗记录不存在或已删除");
+    }
+
+    private String petCareTypeLabel(String code) {
+        return (
+                switch (code) {
+                    case "DEWORMING" -> "驱虫";
+                    case "BATH" -> "洗澡";
+                    case "FEED" -> "喂食";
+                    default -> "护理";
+                }
+        );
     }
 }
