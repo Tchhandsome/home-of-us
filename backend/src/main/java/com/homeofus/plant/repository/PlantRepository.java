@@ -79,9 +79,32 @@ public class PlantRepository {
      */
     public Optional<Map<String, Object>> findPlant(Long plantId, Long familyId) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT id, family_id, name FROM plant WHERE id = ? AND family_id = ? AND deleted = 0",
+                "SELECT id, family_id, name, flower_color, location, status, care_preference, acquired_on, cover_url "
+                        + "FROM plant WHERE id = ? AND family_id = ? AND deleted = 0",
                 plantId, familyId);
         return rows.stream().findFirst();
+    }
+
+    /**
+     * 更新花卉档案。
+     *
+     * @param plantId 花卉 ID
+     * @param familyId 家庭 ID
+     * @param request 更新请求
+     * @param status 状态
+     * @param acquiredOn 入手日期
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int updatePlant(Long plantId, Long familyId, CreatePlantRequest request, String status, LocalDate acquiredOn,
+            Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE plant SET name = ?, variety = ?, flower_color = ?, location = ?, status = ?, "
+                        + "care_preference = ?, acquired_on = ?, cover_url = ?, updated_at = ?, updated_by = ? "
+                        + "WHERE id = ? AND family_id = ? AND deleted = 0",
+                request.getName(), request.getVariety(), request.getFlowerColor(), request.getLocation(), status,
+                request.getCarePreference(), acquiredOn, request.getCoverUrl(), now, operatorId, plantId, familyId);
     }
 
     /**

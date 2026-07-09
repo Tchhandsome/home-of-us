@@ -76,6 +76,8 @@ type HomeCardKey =
 type ReminderViewKey = "list" | "create";
 type ProfileViewKey = "detail" | "edit";
 type PetViewKey = "list" | "detail" | "create" | "edit" | "photos" | "photoCreate" | "medical" | "medicalCreate";
+type PlantViewKey = "list" | "create" | "edit";
+type CareViewKey = "list" | "create";
 type TodoViewKey = "list" | "create" | "edit";
 type TodoFilterKey = "all" | "mine" | "shared" | "done";
 type MemoryViewKey = "list" | "create" | "edit";
@@ -83,6 +85,7 @@ type InventoryViewKey = "list" | "create" | "edit";
 type InventorySegmentKey = "items" | "votes";
 type VoteViewKey = "list" | "create";
 type RecipeViewKey = "list" | "create" | "edit" | "week" | "mealPlanCreate";
+type ShoppingViewKey = "list" | "create";
 type HomeCardDefinition = {
   key: HomeCardKey;
   label: string;
@@ -149,6 +152,8 @@ const selectedPetId = ref("");
 const reminderView = ref<ReminderViewKey>("list");
 const profileView = ref<ProfileViewKey>("detail");
 const petView = ref<PetViewKey>("list");
+const plantView = ref<PlantViewKey>("list");
+const careView = ref<CareViewKey>("list");
 const todoView = ref<TodoViewKey>("list");
 const todoFilter = ref<TodoFilterKey>("all");
 const memoryView = ref<MemoryViewKey>("list");
@@ -156,11 +161,13 @@ const inventoryView = ref<InventoryViewKey>("list");
 const inventorySegment = ref<InventorySegmentKey>("items");
 const voteView = ref<VoteViewKey>("list");
 const recipeView = ref<RecipeViewKey>("list");
+const shoppingView = ref<ShoppingViewKey>("list");
 const homeCardOrder = ref<HomeCardKey[]>([...defaultHomeCardOrder]);
 const savedHomeCardOrder = ref<HomeCardKey[]>([...defaultHomeCardOrder]);
 const homeCardDraggingKey = ref<HomeCardKey | "">("");
 const actionKey = ref("");
 const selectedTodoId = ref("");
+const selectedPlantId = ref("");
 const selectedMemoryId = ref("");
 const selectedInventoryId = ref("");
 const selectedRecipeId = ref("");
@@ -171,12 +178,27 @@ const loginDraft = ref({
   password: ""
 });
 const quickText = ref("");
-const newPlant = ref({
+const plantDraft = ref({
   name: "",
   flowerColor: "",
   location: "",
-  carePreference: ""
+  carePreference: "",
+  acquiredOn: "",
+  status: "GROWING",
+  coverUrl: ""
 });
+const plantEditDraft = ref({
+  id: "",
+  name: "",
+  flowerColor: "",
+  location: "",
+  carePreference: "",
+  acquiredOn: "",
+  status: "GROWING",
+  coverUrl: ""
+});
+const plantFile = ref<File | null>(null);
+const plantEditFile = ref<File | null>(null);
 const careDraft = ref({
   plantId: "",
   careType: "WATER",
@@ -202,7 +224,7 @@ const reminderDraft = ref({
 });
 const todoDraft = ref({
   title: "",
-  taskScope: "PERSONAL",
+  taskScope: "SHARED",
   assigneeId: "",
   taskType: "TEMPORARY",
   cycleRule: "",
@@ -376,6 +398,9 @@ let refreshTimer: number | undefined;
 const pendingReminders = computed(() => reminders.value.filter((item) => text(item, "status") === "PENDING"));
 const openTodoTasks = computed(() => todoTasks.value.filter((item) => text(item, "status") === "TODO"));
 const completedTodoTasks = computed(() => todoTasks.value.filter((item) => text(item, "status") === "DONE"));
+const currentPlant = computed(() =>
+  plants.value.find((plant) => text(plant, "id") === selectedPlantId.value)
+);
 const myTodoTasks = computed(() =>
   openTodoTasks.value.filter((item) => text(item, "assignee_id") === String(currentUser.value.memberId ?? ""))
 );
@@ -565,6 +590,15 @@ const headerTitle = computed(() => {
   if (activeTab.value === "todo") {
     return todoView.value === "create" ? "新增待办" : todoView.value === "edit" ? "编辑待办" : "家庭待办";
   }
+  if (activeTab.value === "plants") {
+    return plantView.value === "create" ? "新增花卉" : plantView.value === "edit" ? "编辑花卉" : "花卉";
+  }
+  if (activeTab.value === "care") {
+    return careView.value === "create" ? "新增养护" : "养护";
+  }
+  if (activeTab.value === "shopping") {
+    return shoppingView.value === "create" ? "新增清单" : "清单";
+  }
   if (activeTab.value === "album") {
     return memoryView.value === "create" ? "新增时刻" : memoryView.value === "edit" ? "编辑时刻" : "时刻墙";
   }
@@ -715,6 +749,27 @@ function todoScopeLabel(code: string): string {
   return code === "SHARED" ? "家庭共享" : "个人任务";
 }
 
+function todoAssigneeLabel(task: AnyRow): string {
+  const assigneeName = text(task, "assignee_name");
+  if (assigneeName) {
+    return `认领人：${assigneeName}`;
+  }
+  if (text(task, "task_scope") === "SHARED") {
+    return "待认领";
+  }
+  return "我的任务";
+}
+
+function plantStatusLabel(code: string): string {
+  return (
+    {
+      GROWING: "养护中",
+      BLOOMING: "盛开中",
+      RESTING: "休眠中"
+    }[code] ?? (code || "养护中")
+  );
+}
+
 function careTypeLabel(code: string): string {
   return (
     {
@@ -735,6 +790,77 @@ function memoryEntryTypeLabel(code: string): string {
       BIRTHDAY: "生日"
     }[code] ?? code
   );
+}
+
+function memoryDateLabel(entryType: string): string {
+  if (entryType === "ANNIVERSARY") {
+    return "原始纪念日";
+  }
+  if (entryType === "BIRTHDAY") {
+    return "原始生日";
+  }
+  return "记录日期";
+}
+
+function dateFromValue(value: string): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function formatDateValue(value: string): string {
+  return value || "未记录";
+}
+
+function nextOccurrenceDate(entry: AnyRow): Date | null {
+  const entryType = text(entry, "entry_type");
+  if (entryType !== "ANNIVERSARY" && entryType !== "BIRTHDAY") {
+    return null;
+  }
+  const base = dateFromValue(text(entry, "taken_on"));
+  if (!base) {
+    return null;
+  }
+  const today = new Date();
+  const year = today.getFullYear();
+  const safeDay = (targetYear: number) =>
+    Math.min(base.getDate(), new Date(targetYear, base.getMonth() + 1, 0).getDate());
+  let candidate = new Date(year, base.getMonth(), safeDay(year), 12, 0, 0, 0);
+  if (candidate < new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0)) {
+    candidate = new Date(year + 1, base.getMonth(), safeDay(year + 1), 12, 0, 0, 0);
+  }
+  return candidate;
+}
+
+function daysUntil(value: Date): number {
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0).getTime();
+  const target = new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0).getTime();
+  return Math.max(0, Math.round((target - start) / 86400000));
+}
+
+function memoryCountdownLabel(entry: AnyRow): string {
+  const nextOccurrence = nextOccurrenceDate(entry);
+  if (!nextOccurrence) {
+    return "";
+  }
+  const month = `${nextOccurrence.getMonth() + 1}`.padStart(2, "0");
+  const day = `${nextOccurrence.getDate()}`.padStart(2, "0");
+  return `下一个日子：${nextOccurrence.getFullYear()}-${month}-${day}，还有 ${daysUntil(nextOccurrence)} 天`;
+}
+
+function memoryReminderLabel(entry: AnyRow): string {
+  const nextRemindAt = text(entry, "next_remind_at");
+  if (!nextRemindAt) {
+    return "";
+  }
+  const reminderDaysBefore = numberValue(entry, "reminder_days_before");
+  return `提前 ${reminderDaysBefore} 天提醒：${formatDateTime(nextRemindAt)}`;
 }
 
 function inventoryItemTypeLabel(code: string): string {
@@ -846,6 +972,33 @@ function syncProfileDraft() {
   };
 }
 
+function resetPlantDraft() {
+  plantDraft.value = {
+    name: "",
+    flowerColor: "",
+    location: "",
+    carePreference: "",
+    acquiredOn: "",
+    status: "GROWING",
+    coverUrl: ""
+  };
+  plantFile.value = null;
+}
+
+function syncPlantEditDraft(plant: AnyRow) {
+  plantEditDraft.value = {
+    id: text(plant, "id"),
+    name: text(plant, "name"),
+    flowerColor: text(plant, "flower_color"),
+    location: text(plant, "location"),
+    carePreference: text(plant, "care_preference"),
+    acquiredOn: text(plant, "acquired_on"),
+    status: text(plant, "status") || "GROWING",
+    coverUrl: text(plant, "cover_url")
+  };
+  plantEditFile.value = null;
+}
+
 function syncPetEditDraft() {
   petEditDraft.value = {
     id: text(currentPet.value ?? {}, "id"),
@@ -862,7 +1015,7 @@ function syncPetEditDraft() {
 function resetTodoDraft() {
   todoDraft.value = {
     title: "",
-    taskScope: "PERSONAL",
+    taskScope: "SHARED",
     assigneeId: "",
     taskType: "TEMPORARY",
     cycleRule: "",
@@ -1010,6 +1163,15 @@ function openTab(tab: TabKey) {
   if (tab === "todo") {
     todoView.value = "list";
   }
+  if (tab === "plants") {
+    plantView.value = "list";
+  }
+  if (tab === "care") {
+    careView.value = "list";
+  }
+  if (tab === "shopping") {
+    shoppingView.value = "list";
+  }
   if (tab === "reminders") {
     reminderView.value = "list";
   }
@@ -1037,6 +1199,121 @@ function goHome() {
   activeTab.value = "today";
 }
 
+function goBack() {
+  if (activeTab.value === "today") {
+    return;
+  }
+  if (activeTab.value === "todo") {
+    if (todoView.value !== "list") {
+      todoView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "plants") {
+    if (plantView.value !== "list") {
+      plantView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "care") {
+    if (careView.value !== "list") {
+      careView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "shopping") {
+    if (shoppingView.value !== "list") {
+      shoppingView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "reminders") {
+    if (reminderView.value !== "list") {
+      reminderView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "profile") {
+    if (profileView.value !== "detail") {
+      profileView.value = "detail";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "memberAdd" || activeTab.value === "memberEdit") {
+    activeTab.value = "members";
+    return;
+  }
+  if (activeTab.value === "members") {
+    goHome();
+    return;
+  }
+  if (activeTab.value === "album") {
+    if (memoryView.value !== "list") {
+      memoryView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "inventory") {
+    if (inventorySegment.value === "votes" && voteView.value !== "list") {
+      voteView.value = "list";
+      return;
+    }
+    if (inventorySegment.value === "items" && inventoryView.value !== "list") {
+      inventoryView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "recipes") {
+    if (recipeView.value === "mealPlanCreate") {
+      recipeView.value = "week";
+      return;
+    }
+    if (recipeView.value !== "list") {
+      recipeView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "pets") {
+    if (petView.value === "photoCreate") {
+      petView.value = "photos";
+      return;
+    }
+    if (petView.value === "medicalCreate") {
+      petView.value = "medical";
+      return;
+    }
+    if (petView.value === "photos" || petView.value === "medical" || petView.value === "edit") {
+      petView.value = "detail";
+      return;
+    }
+    if (petView.value !== "list") {
+      petView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  goHome();
+}
+
 function startCreateTodo() {
   resetTodoDraft();
   todoView.value = "create";
@@ -1046,6 +1323,34 @@ function startEditTodo(task: AnyRow) {
   selectedTodoId.value = text(task, "id");
   syncTodoEditDraft(task);
   todoView.value = "edit";
+}
+
+function startCreatePlant() {
+  resetPlantDraft();
+  plantView.value = "create";
+}
+
+function startEditPlant(plant: AnyRow) {
+  selectedPlantId.value = text(plant, "id");
+  syncPlantEditDraft(plant);
+  plantView.value = "edit";
+}
+
+function startCreateCareRecord() {
+  careDraft.value.plantId = selectedPlantId.value || text(plants.value[0] ?? {}, "id");
+  careDraft.value.careType = "WATER";
+  careDraft.value.detail = "";
+  careDraft.value.nextCareAt = "";
+  careView.value = "create";
+}
+
+function startCreateShopping() {
+  shoppingDraft.value = {
+    name: "",
+    quantity: "",
+    category: "DAILY"
+  };
+  shoppingView.value = "create";
 }
 
 function startCreateReminder() {
@@ -1272,10 +1577,13 @@ function resetDataState() {
   petPhotos.value = [];
   petMedicalRecords.value = [];
   selectedTodoId.value = "";
+  selectedPlantId.value = "";
   selectedMemoryId.value = "";
   selectedInventoryId.value = "";
   selectedRecipeId.value = "";
   selectedPetId.value = "";
+  plantView.value = "list";
+  careView.value = "list";
   todoView.value = "list";
   todoFilter.value = "all";
   reminderView.value = "list";
@@ -1285,6 +1593,7 @@ function resetDataState() {
   inventorySegment.value = "items";
   voteView.value = "list";
   recipeView.value = "list";
+  shoppingView.value = "list";
   petView.value = "list";
   profilePasswordVisible.value = false;
   profilePasswordHintVisible.value = false;
@@ -1473,9 +1782,15 @@ async function loadAll(options: { silent?: boolean } = {}) {
     }
 
     if (plantData.length === 0) {
+      selectedPlantId.value = "";
       careDraft.value.plantId = "";
-    } else if (!plantData.some((plant) => text(plant, "id") === careDraft.value.plantId)) {
-      careDraft.value.plantId = text(plantData[0], "id");
+    } else {
+      if (!plantData.some((plant) => text(plant, "id") === selectedPlantId.value)) {
+        selectedPlantId.value = text(plantData[0], "id");
+      }
+      if (!plantData.some((plant) => text(plant, "id") === careDraft.value.plantId)) {
+        careDraft.value.plantId = selectedPlantId.value;
+      }
     }
 
     if (!privateDraft.value.receiverMemberId && otherMembers.value.length > 0) {
@@ -1496,7 +1811,7 @@ async function loadAll(options: { silent?: boolean } = {}) {
 }
 
 async function loadCareRecords(silent = false) {
-  const plantId = Number(careDraft.value.plantId);
+  const plantId = Number(selectedPlantId.value);
   if (!Number.isFinite(plantId) || plantId <= 0) {
     careRecords.value = [];
     return;
@@ -1940,26 +2255,50 @@ async function deleteRecord(id: number) {
   });
 }
 
-async function submitPlant() {
-  if (!newPlant.value.name.trim()) {
+async function submitPlantCreate() {
+  if (!plantDraft.value.name.trim()) {
     showMessage("请先填写花卉名称", "error");
     return;
   }
   await executeAction("plant-create", "新增花卉失败", async () => {
+    const coverUrl = await uploadSelectedImage(plantFile.value, "PLANT", undefined, "花卉照片");
     await api.createPlant({
-      name: newPlant.value.name,
-      flowerColor: newPlant.value.flowerColor,
-      location: newPlant.value.location,
-      carePreference: newPlant.value.carePreference
+      name: plantDraft.value.name,
+      flowerColor: plantDraft.value.flowerColor,
+      location: plantDraft.value.location,
+      carePreference: plantDraft.value.carePreference,
+      acquiredOn: plantDraft.value.acquiredOn || undefined,
+      status: plantDraft.value.status,
+      coverUrl: coverUrl || plantDraft.value.coverUrl || undefined
     });
-    newPlant.value = {
-      name: "",
-      flowerColor: "",
-      location: "",
-      carePreference: ""
-    };
+    resetPlantDraft();
+    plantView.value = "list";
     await loadAll();
     showMessage("花卉档案已创建");
+  });
+}
+
+async function submitPlantEdit() {
+  const plantId = Number(plantEditDraft.value.id);
+  if (!Number.isFinite(plantId) || plantId <= 0 || !plantEditDraft.value.name.trim()) {
+    showMessage("请先完善花卉信息", "error");
+    return;
+  }
+  await executeAction("plant-update", "更新花卉失败", async () => {
+    const coverUrl = await uploadSelectedImage(plantEditFile.value, "PLANT", plantId, "花卉照片");
+    await api.updatePlant(plantId, {
+      name: plantEditDraft.value.name,
+      flowerColor: plantEditDraft.value.flowerColor,
+      location: plantEditDraft.value.location,
+      carePreference: plantEditDraft.value.carePreference,
+      acquiredOn: plantEditDraft.value.acquiredOn || undefined,
+      status: plantEditDraft.value.status,
+      coverUrl: coverUrl || plantEditDraft.value.coverUrl || undefined
+    });
+    plantEditFile.value = null;
+    plantView.value = "list";
+    await loadAll();
+    showMessage("花卉档案已更新");
   });
 }
 
@@ -1975,7 +2314,7 @@ async function deletePlant(id: number) {
 }
 
 async function submitCareRecord() {
-  const plantId = Number(careDraft.value.plantId || plants.value[0]?.id);
+  const plantId = Number(careDraft.value.plantId || selectedPlantId.value || plants.value[0]?.id);
   if (!Number.isFinite(plantId)) {
     showMessage("请先选择花卉", "error");
     return;
@@ -1991,15 +2330,17 @@ async function submitCareRecord() {
       rawText: careDraft.value.detail,
       nextCareAt: careDraft.value.nextCareAt
     });
+    selectedPlantId.value = String(plantId);
     careDraft.value.detail = "";
     careDraft.value.nextCareAt = "";
+    careView.value = "list";
     await loadAll();
-    showMessage("养护记录已保存，提醒会自动同步");
+    showMessage("养护记录已保存");
   });
 }
 
 async function deleteCareRecord(id: number) {
-  const plantId = Number(careDraft.value.plantId);
+  const plantId = Number(selectedPlantId.value || careDraft.value.plantId);
   if (!Number.isFinite(plantId) || !confirmDelete("这条养护记录")) {
     return;
   }
@@ -2026,6 +2367,7 @@ async function submitShoppingItem() {
       quantity: "",
       category: "DAILY"
     };
+    shoppingView.value = "list";
     await loadAll();
     showMessage("已加入购物清单");
   });
@@ -2483,7 +2825,7 @@ watch(
 );
 
 watch(
-  () => careDraft.value.plantId,
+  () => selectedPlantId.value,
   () => {
     void loadCareRecords();
   }
@@ -2536,14 +2878,14 @@ watch(
           v-if="activeTab !== 'today'"
           class="icon-button"
           type="button"
-          aria-label="返回首页"
-          title="返回首页"
-          @click="goHome()"
+          aria-label="返回上一层"
+          title="返回上一层"
+          @click="goBack()"
         >
           <ArrowLeft :size="19" />
         </button>
         <div>
-          <p class="eyebrow">{{ activeTab === "today" ? "Home Of Us" : "返回首页" }}</p>
+          <p class="eyebrow">{{ activeTab === "today" ? "Home Of Us" : "返回上一层" }}</p>
           <h1>{{ headerTitle }}</h1>
         </div>
       </div>
@@ -2551,6 +2893,16 @@ watch(
         <button v-if="activeTab === 'today'" class="user-chip" type="button" @click="openTab('profile')">
           <User :size="16" />
           <span>{{ text(currentUser, "displayName") }}</span>
+        </button>
+        <button
+          v-if="activeTab !== 'today'"
+          class="icon-button"
+          type="button"
+          aria-label="返回首页"
+          title="返回首页"
+          @click="goHome()"
+        >
+          <Home :size="18" />
         </button>
         <button class="icon-button" type="button" aria-label="刷新" title="刷新" @click="loadAll()">
           <LoaderCircle :class="{ spin: loading }" :size="20" />
@@ -2631,7 +2983,7 @@ watch(
             </span>
             <p>{{ text(task, "title") }}</p>
             <small v-if="text(task, 'note')">{{ text(task, "note") }}</small>
-            <small v-if="text(task, 'assignee_name')">认领人：{{ text(task, "assignee_name") }}</small>
+            <small>{{ todoAssigneeLabel(task) }}</small>
           </div>
           <div class="row-actions">
             <button
@@ -2681,8 +3033,8 @@ watch(
         <input v-model="todoDraft.title" placeholder="待办标题" />
         <div class="inline-fields">
           <select v-model="todoDraft.taskScope">
-            <option value="PERSONAL">个人任务</option>
             <option value="SHARED">家庭共享任务</option>
+            <option value="PERSONAL">个人任务</option>
           </select>
           <input v-model="todoDraft.dueAt" type="datetime-local" placeholder="截止时间" />
         </div>
@@ -2744,41 +3096,155 @@ watch(
     </section>
 
     <section v-if="activeTab === 'plants'" class="view">
-      <article class="form-card">
+      <template v-if="plantView === 'list'">
+        <article class="list-card">
+          <div class="section-title">
+            <h2>花卉列表</h2>
+            <button class="icon-button" type="button" aria-label="新增花卉" title="新增花卉" @click="startCreatePlant()">
+              <Plus :size="18" />
+            </button>
+          </div>
+          <p v-if="plants.length === 0" class="empty">还没有花卉档案</p>
+        </article>
+        <article
+          v-for="plant in plants"
+          :key="text(plant, 'id')"
+          :class="['plant-card', 'plant-photo-card', { active: text(plant, 'id') === selectedPlantId }]"
+          @click="selectedPlantId = text(plant, 'id')"
+        >
+          <img v-if="text(plant, 'cover_url')" class="plant-cover" :src="text(plant, 'cover_url')" :alt="text(plant, 'name')" />
+          <span v-else class="plant-cover plant-cover-placeholder">
+            <Leaf :size="18" />
+          </span>
+          <div class="plant-copy">
+            <h3>{{ text(plant, "name") }}</h3>
+            <p>{{ text(plant, "flower_color") || "未记录花色" }} · {{ text(plant, "location") || "未记录位置" }}</p>
+            <small v-if="text(plant, 'care_preference')">{{ text(plant, "care_preference") }}</small>
+          </div>
+          <strong>{{ plantStatusLabel(text(plant, "status")) }}</strong>
+          <div class="row-actions">
+            <button class="icon-button" type="button" aria-label="编辑花卉" title="编辑花卉" @click.stop="startEditPlant(plant)">
+              <Pencil :size="16" />
+            </button>
+            <button
+              class="icon-button danger-icon-button"
+              type="button"
+              aria-label="删除花卉"
+              title="删除花卉"
+              @click.stop="deletePlant(numberValue(plant, 'id'))"
+            >
+              <Trash2 :size="16" />
+            </button>
+          </div>
+        </article>
+      </template>
+
+      <article v-else-if="plantView === 'create'" class="form-card">
         <div class="section-title">
+          <button class="icon-button" type="button" aria-label="返回花卉列表" title="返回花卉列表" @click="plantView = 'list'">
+            <ArrowLeft :size="18" />
+          </button>
           <h2>新增花卉</h2>
           <Leaf :size="18" />
         </div>
-        <input v-model="newPlant.name" placeholder="名称，如月季" />
+        <label class="file-pick">
+          <ImagePlus :size="18" />
+          <span>{{ plantFile ? plantFile.name : "上传花卉照片" }}</span>
+          <input type="file" accept="image/*" @change="plantFile = selectedFile($event)" />
+        </label>
+        <input v-model="plantDraft.name" placeholder="名称，如月季" />
         <div class="inline-fields">
-          <input v-model="newPlant.flowerColor" placeholder="花色" />
-          <input v-model="newPlant.location" placeholder="位置" />
+          <input v-model="plantDraft.flowerColor" placeholder="花色" />
+          <input v-model="plantDraft.location" placeholder="位置" />
         </div>
-        <input v-model="newPlant.carePreference" placeholder="养护偏好" />
-        <button class="secondary-button" :disabled="isSubmitting('plant-create')" type="button" @click="submitPlant">
+        <input v-model="plantDraft.carePreference" placeholder="养护偏好" />
+        <div class="inline-fields">
+          <input v-model="plantDraft.acquiredOn" type="date" />
+          <select v-model="plantDraft.status">
+            <option value="GROWING">养护中</option>
+            <option value="BLOOMING">盛开中</option>
+            <option value="RESTING">休眠中</option>
+          </select>
+        </div>
+        <button class="secondary-button" :disabled="isSubmitting('plant-create')" type="button" @click="submitPlantCreate()">
           <LoaderCircle v-if="isSubmitting('plant-create')" class="spin" :size="17" />
           <Plus v-else :size="17" />
-          <span>新增</span>
+          <span>保存花卉</span>
         </button>
       </article>
 
-      <article v-for="plant in plants" :key="text(plant, 'id')" class="plant-card">
-        <span class="plant-dot"></span>
-        <div>
-          <h3>{{ text(plant, "name") }}</h3>
-          <p>{{ text(plant, "flower_color") || "未记录花色" }} · {{ text(plant, "location") || "未记录位置" }}</p>
+      <article v-else class="form-card">
+        <div class="section-title">
+          <button class="icon-button" type="button" aria-label="返回花卉列表" title="返回花卉列表" @click="plantView = 'list'">
+            <ArrowLeft :size="18" />
+          </button>
+          <h2>编辑花卉</h2>
+          <Leaf :size="18" />
         </div>
-        <strong>{{ text(plant, "status") }}</strong>
-        <button class="icon-button danger-icon-button" type="button" @click="deletePlant(numberValue(plant, 'id'))">
-          <Trash2 :size="16" />
+        <label class="file-pick">
+          <ImagePlus :size="18" />
+          <span>{{ plantEditFile ? plantEditFile.name : "更换花卉照片" }}</span>
+          <input type="file" accept="image/*" @change="plantEditFile = selectedFile($event)" />
+        </label>
+        <input v-model="plantEditDraft.name" placeholder="名称，如月季" />
+        <div class="inline-fields">
+          <input v-model="plantEditDraft.flowerColor" placeholder="花色" />
+          <input v-model="plantEditDraft.location" placeholder="位置" />
+        </div>
+        <input v-model="plantEditDraft.carePreference" placeholder="养护偏好" />
+        <div class="inline-fields">
+          <input v-model="plantEditDraft.acquiredOn" type="date" />
+          <select v-model="plantEditDraft.status">
+            <option value="GROWING">养护中</option>
+            <option value="BLOOMING">盛开中</option>
+            <option value="RESTING">休眠中</option>
+          </select>
+        </div>
+        <button class="secondary-button" :disabled="isSubmitting('plant-update')" type="button" @click="submitPlantEdit()">
+          <LoaderCircle v-if="isSubmitting('plant-update')" class="spin" :size="17" />
+          <Check v-else :size="17" />
+          <span>更新花卉</span>
         </button>
       </article>
     </section>
 
     <section v-if="activeTab === 'care'" class="view">
-      <article class="form-card">
+      <article v-if="careView === 'list'" class="list-card">
         <div class="section-title">
-          <h2>添加养护记录</h2>
+          <h2>养护历史</h2>
+          <button class="icon-button" type="button" aria-label="新增养护" title="新增养护" @click="startCreateCareRecord()">
+            <Plus :size="18" />
+          </button>
+        </div>
+        <select v-model="selectedPlantId">
+          <option value="">选择花卉查看</option>
+          <option v-for="plant in plants" :key="text(plant, 'id')" :value="text(plant, 'id')">
+            {{ text(plant, "name") }}
+          </option>
+        </select>
+        <div v-if="currentPlant" class="feed-item">
+          <span>{{ plantStatusLabel(text(currentPlant ?? {}, "status")) }}</span>
+          <p>{{ text(currentPlant ?? {}, "name") }}</p>
+          <small>{{ text(currentPlant ?? {}, "location") || "未记录位置" }}</small>
+        </div>
+        <p v-if="careRecords.length === 0" class="empty">选择花卉后查看养护历史</p>
+        <div v-for="record in careRecords" :key="text(record, 'id')" class="feed-item feed-item-actions">
+          <span>{{ careTypeLabel(text(record, "care_type")) }} · {{ text(record, "care_date") }}</span>
+          <p>{{ text(record, "detail") || text(record, "raw_text") }}</p>
+          <small v-if="text(record, 'next_care_at')">下次养护：{{ formatDateTime(text(record, "next_care_at")) }}</small>
+          <button class="text-button danger-button" type="button" @click="deleteCareRecord(numberValue(record, 'id'))">
+            <Trash2 :size="15" />
+            <span>删除</span>
+          </button>
+        </div>
+      </article>
+
+      <article v-else class="form-card">
+        <div class="section-title">
+          <button class="icon-button" type="button" aria-label="返回养护列表" title="返回养护列表" @click="careView = 'list'">
+            <ArrowLeft :size="18" />
+          </button>
+          <h2>新增养护</h2>
           <Sprout :size="18" />
         </div>
         <select v-model="careDraft.plantId">
@@ -2796,53 +3262,26 @@ watch(
           </select>
           <input v-model="careDraft.nextCareAt" type="datetime-local" />
         </div>
-        <textarea v-model="careDraft.detail" rows="3" placeholder="月季超微已浇水，7.9用1号" />
+        <textarea v-model="careDraft.detail" rows="3" placeholder="月季超微已浇水，7.18再次浇水" />
         <button class="secondary-button" :disabled="isSubmitting('care-create')" type="button" @click="submitCareRecord">
           <LoaderCircle v-if="isSubmitting('care-create')" class="spin" :size="17" />
           <Plus v-else :size="17" />
           <span>保存养护</span>
         </button>
       </article>
-
-      <article class="list-card">
-        <div class="section-title">
-          <h2>养护历史</h2>
-          <span>{{ careRecords.length }}</span>
-        </div>
-        <p v-if="careRecords.length === 0" class="empty">选择花卉后查看养护历史</p>
-        <div v-for="record in careRecords" :key="text(record, 'id')" class="feed-item feed-item-actions">
-          <span>{{ careTypeLabel(text(record, "care_type")) }} · {{ text(record, "care_date") }}</span>
-          <p>{{ text(record, "detail") || text(record, "raw_text") }}</p>
-          <button class="text-button danger-button" type="button" @click="deleteCareRecord(numberValue(record, 'id'))">
-            <Trash2 :size="15" />
-            <span>删除</span>
-          </button>
-        </div>
-      </article>
     </section>
 
     <section v-if="activeTab === 'shopping'" class="view">
-      <article class="form-card">
+      <article v-if="shoppingView === 'list'" class="list-card">
         <div class="section-title">
           <h2>购物清单</h2>
-          <ClipboardList :size="18" />
+          <button class="icon-button" type="button" aria-label="新增购物项" title="新增购物项" @click="startCreateShopping()">
+            <Plus :size="18" />
+          </button>
         </div>
-        <div class="inline-fields">
-          <input v-model="shoppingDraft.name" placeholder="物品" />
-          <input v-model="shoppingDraft.quantity" placeholder="数量" />
-        </div>
-        <select v-model="shoppingDraft.category">
-          <option v-for="category in financeCategories" :key="text(category, 'code')" :value="text(category, 'code')">
-            {{ text(category, "name") }}
-          </option>
-        </select>
-        <button class="secondary-button" :disabled="isSubmitting('shopping-create')" type="button" @click="submitShoppingItem">
-          <LoaderCircle v-if="isSubmitting('shopping-create')" class="spin" :size="17" />
-          <Plus v-else :size="17" />
-          <span>加入清单</span>
-        </button>
+        <p v-if="todoShoppingItems.length === 0" class="empty">还没有待买物品</p>
       </article>
-      <article v-for="item in todoShoppingItems" :key="text(item, 'id')" class="shopping-card">
+      <article v-for="item in shoppingView === 'list' ? todoShoppingItems : []" :key="text(item, 'id')" class="shopping-card">
         <div class="shopping-head">
           <strong>{{ text(item, "name") }}</strong>
           <p>
@@ -2878,7 +3317,8 @@ watch(
           </button>
         </div>
       </article>
-      <article class="list-card">
+
+      <article v-if="shoppingView === 'list'" class="list-card">
         <div class="section-title">
           <h2>已购买</h2>
           <span>{{ doneShoppingItems.length }}</span>
@@ -2895,6 +3335,30 @@ watch(
             <span>删除</span>
           </button>
         </div>
+      </article>
+
+      <article v-else class="form-card">
+        <div class="section-title">
+          <button class="icon-button" type="button" aria-label="返回购物清单" title="返回购物清单" @click="shoppingView = 'list'">
+            <ArrowLeft :size="18" />
+          </button>
+          <h2>新增购物项</h2>
+          <ClipboardList :size="18" />
+        </div>
+        <div class="inline-fields">
+          <input v-model="shoppingDraft.name" placeholder="物品" />
+          <input v-model="shoppingDraft.quantity" placeholder="数量" />
+        </div>
+        <select v-model="shoppingDraft.category">
+          <option v-for="category in financeCategories" :key="text(category, 'code')" :value="text(category, 'code')">
+            {{ text(category, "name") }}
+          </option>
+        </select>
+        <button class="secondary-button" :disabled="isSubmitting('shopping-create')" type="button" @click="submitShoppingItem">
+          <LoaderCircle v-if="isSubmitting('shopping-create')" class="spin" :size="17" />
+          <Plus v-else :size="17" />
+          <span>加入清单</span>
+        </button>
       </article>
     </section>
 
@@ -3069,7 +3533,10 @@ watch(
         </div>
         <p v-if="albumPhotos.length === 0" class="empty">还没有时刻记录</p>
         <article v-for="entry in albumPhotos" :key="text(entry, 'id')" class="memory-item">
-          <img v-if="text(entry, 'image_url')" :src="text(entry, 'image_url')" :alt="text(entry, 'title')" />
+          <div class="memory-thumb">
+            <img v-if="text(entry, 'image_url')" :src="text(entry, 'image_url')" :alt="text(entry, 'title')" />
+            <span v-else class="memory-thumb-placeholder">{{ memoryEntryTypeLabel(text(entry, "entry_type")) }}</span>
+          </div>
           <div class="memory-copy">
             <span>
               {{ memoryEntryTypeLabel(text(entry, "entry_type")) }} ·
@@ -3078,7 +3545,11 @@ watch(
             <strong>{{ text(entry, "title") }}</strong>
             <p v-if="text(entry, 'description')">{{ text(entry, "description") }}</p>
             <p v-if="text(entry, 'wish_text')" class="muted">愿望：{{ text(entry, "wish_text") }}</p>
-            <p v-if="text(entry, 'next_remind_at')" class="muted">下次提醒：{{ formatDateTime(text(entry, "next_remind_at")) }}</p>
+            <p v-if="['ANNIVERSARY', 'BIRTHDAY'].includes(text(entry, 'entry_type'))" class="muted">
+              {{ memoryDateLabel(text(entry, "entry_type")) }}：{{ formatDateValue(text(entry, "taken_on")) }}
+            </p>
+            <p v-if="memoryCountdownLabel(entry)" class="muted">{{ memoryCountdownLabel(entry) }}</p>
+            <p v-if="memoryReminderLabel(entry)" class="muted">{{ memoryReminderLabel(entry) }}</p>
           </div>
           <div class="row-actions">
             <button class="icon-button" type="button" aria-label="编辑时刻" title="编辑时刻" @click="startEditMemory(entry)">
@@ -3119,7 +3590,10 @@ watch(
         <input v-model="albumDraft.title" placeholder="标题" />
         <input v-model="albumDraft.imageUrl" placeholder="图片链接（可选）" />
         <textarea v-model="albumDraft.description" rows="3" placeholder="文字记录" />
-        <input v-model="albumDraft.takenOn" type="date" />
+        <div class="field-stack">
+          <span class="field-label">{{ memoryDateLabel(albumDraft.entryType) }}</span>
+          <input v-model="albumDraft.takenOn" type="date" />
+        </div>
         <textarea
           v-if="['ANNIVERSARY', 'BIRTHDAY'].includes(albumDraft.entryType)"
           v-model="albumDraft.wishText"
@@ -3130,7 +3604,10 @@ watch(
           <input v-model="albumDraft.reminderEnabled" type="checkbox" />
           <span>开启周年提醒</span>
         </label>
-        <input v-if="['ANNIVERSARY', 'BIRTHDAY'].includes(albumDraft.entryType)" v-model="albumDraft.reminderDaysBefore" inputmode="numeric" placeholder="提前几天提醒" />
+        <div v-if="['ANNIVERSARY', 'BIRTHDAY'].includes(albumDraft.entryType)" class="field-stack">
+          <span class="field-label">提前提醒天数</span>
+          <input v-model="albumDraft.reminderDaysBefore" inputmode="numeric" placeholder="如 3" />
+        </div>
         <button class="secondary-button" :disabled="isSubmitting('memory-create')" type="button" @click="submitMemoryCreate()">
           <LoaderCircle v-if="isSubmitting('memory-create')" class="spin" :size="17" />
           <ImagePlus v-else :size="17" />
@@ -3160,7 +3637,10 @@ watch(
         <input v-model="albumEditDraft.title" placeholder="标题" />
         <input v-model="albumEditDraft.imageUrl" placeholder="图片链接（可选）" />
         <textarea v-model="albumEditDraft.description" rows="3" placeholder="文字记录" />
-        <input v-model="albumEditDraft.takenOn" type="date" />
+        <div class="field-stack">
+          <span class="field-label">{{ memoryDateLabel(albumEditDraft.entryType) }}</span>
+          <input v-model="albumEditDraft.takenOn" type="date" />
+        </div>
         <textarea
           v-if="['ANNIVERSARY', 'BIRTHDAY'].includes(albumEditDraft.entryType)"
           v-model="albumEditDraft.wishText"
@@ -3171,12 +3651,10 @@ watch(
           <input v-model="albumEditDraft.reminderEnabled" type="checkbox" />
           <span>开启周年提醒</span>
         </label>
-        <input
-          v-if="['ANNIVERSARY', 'BIRTHDAY'].includes(albumEditDraft.entryType)"
-          v-model="albumEditDraft.reminderDaysBefore"
-          inputmode="numeric"
-          placeholder="提前几天提醒"
-        />
+        <div v-if="['ANNIVERSARY', 'BIRTHDAY'].includes(albumEditDraft.entryType)" class="field-stack">
+          <span class="field-label">提前提醒天数</span>
+          <input v-model="albumEditDraft.reminderDaysBefore" inputmode="numeric" placeholder="如 3" />
+        </div>
         <button class="secondary-button" :disabled="isSubmitting('memory-update')" type="button" @click="submitMemoryEdit()">
           <LoaderCircle v-if="isSubmitting('memory-update')" class="spin" :size="17" />
           <ImagePlus v-else :size="17" />

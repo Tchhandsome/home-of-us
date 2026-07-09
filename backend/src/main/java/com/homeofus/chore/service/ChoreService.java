@@ -61,8 +61,8 @@ public class ChoreService {
         LocalDateTime dueAt = parseDueAt(request.getDueAt());
         choreRepository.insert(id, DefaultFamily.FAMILY_ID, request, taskScope, currentUser.getMemberId(), assigneeId,
                 resolveTaskType(request.getTaskType()), dueAt, currentUser.getUserId(), timeProvider.now());
-        // 待办与提醒中心共用来源标识，更新时统一回收重建，避免重复提醒。
-        syncReminder(id, request.getTitle(), request.getNote(), dueAt);
+        // 待办不再进入提醒中心，但仍兜底清掉旧来源，避免历史脏数据继续显示。
+        clearReminder(id);
         return Map.of("id", id);
     }
 
@@ -91,7 +91,7 @@ public class ChoreService {
         int updated = choreRepository.update(DefaultFamily.FAMILY_ID, taskId, request, taskScope,
                 currentUser.getMemberId(), assigneeId, resolveTaskType(request.getTaskType()), dueAt,
                 currentUser.getUserId(), timeProvider.now());
-        syncReminder(taskId, request.getTitle(), request.getNote(), dueAt);
+        clearReminder(taskId);
         return Map.of("updated", updated);
     }
 
@@ -123,7 +123,7 @@ public class ChoreService {
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         int updated = choreRepository.complete(DefaultFamily.FAMILY_ID, taskId, currentUser.getMemberId(),
                 currentUser.getUserId(), timeProvider.now());
-        reminderService.deleteBySource(TODO_SOURCE_TYPE, taskId);
+        clearReminder(taskId);
         return Map.of("updated", updated);
     }
 
@@ -136,19 +136,14 @@ public class ChoreService {
     public Map<String, Object> delete(Long taskId) {
         ensureTaskExists(taskId);
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
-        reminderService.deleteBySource(TODO_SOURCE_TYPE, taskId);
+        clearReminder(taskId);
         int updated = choreRepository.delete(DefaultFamily.FAMILY_ID, taskId, currentUser.getUserId(),
                 timeProvider.now());
         return Map.of("updated", updated);
     }
 
-    private void syncReminder(Long taskId, String title, String note, LocalDateTime dueAt) {
+    private void clearReminder(Long taskId) {
         reminderService.deleteBySource(TODO_SOURCE_TYPE, taskId);
-        if (Objects.isNull(dueAt)) {
-            return;
-        }
-        reminderService.createFromSource(title, StringUtils.defaultIfBlank(note, "家庭待办"), TODO_SOURCE_TYPE, taskId,
-                dueAt);
     }
 
     private Map<String, Object> ensureTaskExists(Long taskId) {

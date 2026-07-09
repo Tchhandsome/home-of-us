@@ -7,6 +7,7 @@ import com.homeofus.plant.service.PlantService;
 import java.util.List;
 import java.util.Map;
 import javax.validation.Valid;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -49,6 +50,19 @@ public class PlantController {
     @GetMapping
     public ApiResponse<List<Map<String, Object>>> findPlants() {
         return ApiResponse.ok(plantService.findPlants());
+    }
+
+    /**
+     * 更新花卉档案。
+     *
+     * @param plantId 花卉 ID
+     * @param request 更新请求
+     * @return 更新结果
+     */
+    @PatchMapping("/{plantId}")
+    public ApiResponse<Map<String, Object>> updatePlant(@PathVariable Long plantId,
+            @Valid @RequestBody CreatePlantRequest request) {
+        return ApiResponse.ok(plantService.updatePlant(plantId, request));
     }
 
     /**

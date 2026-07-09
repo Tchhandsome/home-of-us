@@ -78,6 +78,23 @@ public class PlantService {
     }
 
     /**
+     * 更新花卉档案。
+     *
+     * @param plantId 花卉 ID
+     * @param request 更新请求
+     * @return 更新结果
+     */
+    public Map<String, Object> updatePlant(Long plantId, CreatePlantRequest request) {
+        ensurePlantExists(plantId);
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        String status = StringUtils.defaultIfBlank(request.getStatus(), "GROWING");
+        LocalDate acquiredOn = parseDate(request.getAcquiredOn(), null);
+        int updated = plantRepository.updatePlant(plantId, DefaultFamily.FAMILY_ID, request, status, acquiredOn,
+                currentUser.getUserId(), timeProvider.now());
+        return Map.of("updated", updated);
+    }
+
+    /**
      * 新增养护记录。
      *
      * @param plantId 花卉 ID

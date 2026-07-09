@@ -333,6 +333,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  updatePlant: (id: number, payload: CreatePlantPayload) =>
+    request<AnyRow>(`/plants/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
   deletePlant: (id: number) =>
     request<AnyRow>(`/plants/${id}`, {
       method: "DELETE"

@@ -114,7 +114,7 @@ class ChoreServiceTest {
 
         assertEquals(1, result.get("updated"));
         verify(reminderService).deleteBySource("TODO_TASK", 8201L);
-        verify(reminderService).createFromSource("周末大扫除", "周六上午一起做", "TODO_TASK", 8201L,
+        verify(reminderService, never()).createFromSource("周末大扫除", "周六上午一起做", "TODO_TASK", 8201L,
                 LocalDateTime.of(2026, 7, 12, 9, 0));
     }
 
