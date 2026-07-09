@@ -2,6 +2,7 @@ package com.homeofus.plant.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.homeofus.common.domain.DefaultFamily;
@@ -83,7 +84,7 @@ class PlantServiceTest {
     }
 
     @Test
-    void shouldCreateReminderFromCareTextMonthDay() {
+    void shouldCreateReminderFromManualNextCareAt() {
         CurrentUser currentUser = new CurrentUser(9002L, DefaultFamily.FAMILY_ID, 1002L, "dandan", "丹丹");
         LocalDateTime now = LocalDateTime.of(2026, 7, 9, 9, 0);
         CreatePlantCareRecordRequest request = new CreatePlantCareRecordRequest();
@@ -91,11 +92,11 @@ class PlantServiceTest {
         request.setDetail("7.6日已浇水，7.18日再次浇水");
         request.setRawText("7.6日已浇水，7.18日再次浇水");
         request.setCareDate("2026-07-09");
+        request.setNextCareAt("2026-07-18T09:00");
 
         when(currentUserProvider.getCurrentUser()).thenReturn(currentUser);
         when(idGenerator.nextId()).thenReturn(7401L);
         when(timeProvider.now()).thenReturn(now);
-        when(timeProvider.today()).thenReturn(LocalDate.of(2026, 7, 9));
         when(plantRepository.findPlant(7101L, DefaultFamily.FAMILY_ID)).thenReturn(Optional.of(Map.of("id", 7101L)));
         when(plantRepository.findPlantName(7101L)).thenReturn("多肉");
 
@@ -109,19 +110,18 @@ class PlantServiceTest {
     }
 
     @Test
-    void shouldClearLegacyFutureYearWhenTextOnlyContainsPastDate() {
+    void shouldNotParseNextCareAtFromDetailWhenManualFieldIsBlank() {
         CurrentUser currentUser = new CurrentUser(9003L, DefaultFamily.FAMILY_ID, 1001L, "xiaotan", "小谭");
         LocalDateTime now = LocalDateTime.of(2026, 7, 9, 10, 0);
         CreatePlantCareRecordRequest request = new CreatePlantCareRecordRequest();
         request.setCareType("WATER");
-        request.setDetail("7.6日已经浇水");
-        request.setRawText("7.6日已经浇水");
+        request.setDetail("7.6日已经浇水，7.18日再次浇水");
+        request.setRawText("7.6日已经浇水，7.18日再次浇水");
         request.setCareDate("2026-07-09");
 
         when(currentUserProvider.getCurrentUser()).thenReturn(currentUser);
         when(idGenerator.nextId()).thenReturn(7402L);
         when(timeProvider.now()).thenReturn(now);
-        when(timeProvider.today()).thenReturn(LocalDate.of(2026, 7, 9));
         when(plantRepository.findPlant(7102L, DefaultFamily.FAMILY_ID)).thenReturn(Optional.of(Map.of("id", 7102L)));
 
         Map<String, Object> result = plantService.createCareRecord(7102L, request);
@@ -129,6 +129,7 @@ class PlantServiceTest {
         assertEquals(7402L, result.get("id"));
         verify(plantRepository).insertCareRecord(7402L, DefaultFamily.FAMILY_ID, 7102L, request,
                 LocalDate.of(2026, 7, 9), null, 9003L, now);
+        verifyNoInteractions(reminderService);
     }
 
     @Test

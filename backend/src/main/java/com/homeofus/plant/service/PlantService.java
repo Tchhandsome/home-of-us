@@ -116,7 +116,7 @@ public class PlantService {
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         Long id = idGenerator.nextId();
         LocalDate careDate = parseDate(request.getCareDate(), timeProvider.today());
-        LocalDateTime nextCareAt = resolveNextCareAt(request, careDate);
+        LocalDateTime nextCareAt = resolveNextCareAt(request);
         plantRepository.insertCareRecord(id, DefaultFamily.FAMILY_ID, plantId, request, careDate, nextCareAt,
                 currentUser.getUserId(), timeProvider.now());
         createCareReminder(plantId, id, request, nextCareAt);
@@ -253,13 +253,8 @@ public class PlantService {
         return !currentDate.isAfter(careDate) && repairedDate.isAfter(careDate);
     }
 
-    private LocalDateTime resolveNextCareAt(CreatePlantCareRecordRequest request, LocalDate careDate) {
-        LocalDateTime nextCareAt = parseDateTime(request.getNextCareAt());
-        if (Objects.nonNull(nextCareAt)) {
-            return nextCareAt;
-        }
-        String sourceText = StringUtils.defaultIfBlank(request.getDetail(), request.getRawText());
-        return parseNextCareAtFromText(sourceText, careDate);
+    private LocalDateTime resolveNextCareAt(CreatePlantCareRecordRequest request) {
+        return parseDateTime(request.getNextCareAt());
     }
 
     private LocalDateTime parseNextCareAtFromText(String sourceText, LocalDate careDate) {

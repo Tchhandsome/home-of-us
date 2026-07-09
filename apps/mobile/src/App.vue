@@ -4145,15 +4145,22 @@ watch(
           </option>
         </select>
         <div class="inline-fields">
-          <select v-model="careDraft.careType">
-            <option value="WATER">浇水</option>
-            <option value="FERTILIZE">施肥</option>
-            <option value="PRUNE">修剪</option>
-            <option value="OBSERVE">观察</option>
-          </select>
-          <input v-model="careDraft.nextCareAt" type="datetime-local" />
+          <div class="field-stack">
+            <span class="field-label">养护类型</span>
+            <select v-model="careDraft.careType">
+              <option value="WATER">浇水</option>
+              <option value="FERTILIZE">施肥</option>
+              <option value="PRUNE">修剪</option>
+              <option value="OBSERVE">观察</option>
+            </select>
+          </div>
+          <div class="field-stack">
+            <span class="field-label">下次养护时间</span>
+            <input v-model="careDraft.nextCareAt" type="datetime-local" />
+          </div>
         </div>
-        <textarea v-model="careDraft.detail" rows="3" placeholder="月季超微已浇水，7.18再次浇水" />
+        <small class="muted">这里改为手动填写；留空就只记录本次养护，不会再根据文字自动识别提醒时间。</small>
+        <textarea v-model="careDraft.detail" rows="3" placeholder="记录这次做了什么、植物现在状态如何" />
         <button class="secondary-button" :disabled="isSubmitting('care-create')" type="button" @click="submitCareRecord">
           <LoaderCircle v-if="isSubmitting('care-create')" class="spin" :size="17" />
           <Plus v-else :size="17" />
