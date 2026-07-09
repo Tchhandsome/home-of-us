@@ -9,11 +9,13 @@ import com.homeofus.common.web.CurrentUserProvider;
 import com.homeofus.plant.dto.CreatePlantCareRecordRequest;
 import com.homeofus.plant.dto.CreatePlantRequest;
 import com.homeofus.plant.repository.PlantRepository;
+import com.homeofus.reminder.repository.ReminderRepository;
 import com.homeofus.reminder.service.ReminderService;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -30,10 +32,16 @@ import org.springframework.stereotype.Service;
 @Service
 public class PlantService {
 
+    private static final String PLANT_CARE_SOURCE_TYPE = "PLANT_CARE";
+
+    private static final LocalTime DEFAULT_NEXT_CARE_TIME = LocalTime.of(9, 0);
+
     private static final Pattern MONTH_DAY_PATTERN = Pattern
             .compile("(?<!\\d)(\\d{1,2})(?:月|[./-])(\\d{1,2})日?(?!\\d)");
 
     private final PlantRepository plantRepository;
+
+    private final ReminderRepository reminderRepository;
 
     private final ReminderService reminderService;
 
@@ -43,9 +51,11 @@ public class PlantService {
 
     private final TimeProvider timeProvider;
 
-    public PlantService(PlantRepository plantRepository, ReminderService reminderService,
+    public PlantService(PlantRepository plantRepository, ReminderRepository reminderRepository,
+            ReminderService reminderService,
             CurrentUserProvider currentUserProvider, IdGenerator idGenerator, TimeProvider timeProvider) {
         this.plantRepository = plantRepository;
+        this.reminderRepository = reminderRepository;
         this.reminderService = reminderService;
         this.currentUserProvider = currentUserProvider;
         this.idGenerator = idGenerator;
@@ -157,9 +167,46 @@ public class PlantService {
         plantRepository.findCareRecord(plantId, recordId)
                 .orElseThrow(() -> new BusinessException("PLANT_CARE_RECORD_NOT_FOUND", "养护记录不存在或已删除"));
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
-        reminderService.deleteBySource("PLANT_CARE", recordId);
+        reminderService.deleteBySource(PLANT_CARE_SOURCE_TYPE, recordId);
         int updated = plantRepository.deleteCareRecord(plantId, recordId, currentUser.getUserId(), timeProvider.now());
         return Map.of("updated", updated);
+    }
+
+    /**
+     * 修复历史养护提醒时间。
+     *
+     * @return 修复数量
+     */
+    public int repairHistoricalCareSchedules() {
+        List<Map<String, Object>> records = plantRepository.findCareRecordsForRepair(DefaultFamily.FAMILY_ID);
+        int repairedCount = 0;
+        LocalDateTime now = timeProvider.now();
+        for (Map<String, Object> record : records) {
+            Long recordId = numberValue(record, "id");
+            Long familyId = numberValue(record, "family_id");
+            LocalDate careDate = localDateValue(record, "care_date");
+            LocalDateTime currentNextCareAt = localDateTimeValue(record, "next_care_at");
+            String sourceText = StringUtils.defaultIfBlank(textValue(record, "detail"), textValue(record, "raw_text"));
+            LocalDateTime legacyNextCareAt = parseLegacyNextCareAtFromText(sourceText, careDate);
+            LocalDateTime repairedNextCareAt = parseNextCareAtFromText(sourceText, careDate);
+            if (!Objects.equals(currentNextCareAt, legacyNextCareAt)
+                    && !shouldRepairCurrentNextCareAt(currentNextCareAt, repairedNextCareAt, careDate)) {
+                continue;
+            }
+            if (Objects.equals(currentNextCareAt, repairedNextCareAt)) {
+                continue;
+            }
+            plantRepository.updateCareRecordNextCareAt(recordId, familyId, repairedNextCareAt, null, now);
+            if (Objects.isNull(repairedNextCareAt)) {
+                reminderRepository.deleteBySourceAndDueAt(familyId, PLANT_CARE_SOURCE_TYPE, recordId, currentNextCareAt,
+                        null, now);
+            } else {
+                reminderRepository.updateDueAtBySource(familyId, PLANT_CARE_SOURCE_TYPE, recordId, currentNextCareAt,
+                        repairedNextCareAt, null, now);
+            }
+            repairedCount++;
+        }
+        return repairedCount;
     }
 
     private void createCareReminder(Long plantId, Long careRecordId, CreatePlantCareRecordRequest request,
@@ -171,7 +218,7 @@ public class PlantService {
         String title = plantName + "下次养护";
         String description = StringUtils.defaultIfBlank(request.getDetail(), request.getRawText());
         // 养护记录派生提醒，保证用户输入一次即可进入后续待办。
-        reminderService.createFromSource(title, description, "PLANT_CARE", careRecordId, nextCareAt);
+        reminderService.createFromSource(title, description, PLANT_CARE_SOURCE_TYPE, careRecordId, nextCareAt);
     }
 
     private LocalDate parseDate(String value, LocalDate defaultValue) {
@@ -192,8 +239,18 @@ public class PlantService {
         try {
             return LocalDateTime.parse(value);
         } catch (DateTimeParseException exception) {
-            return timeProvider.now().plusDays(7);
+            return null;
         }
+    }
+
+    private boolean shouldRepairCurrentNextCareAt(LocalDateTime currentNextCareAt, LocalDateTime repairedNextCareAt,
+            LocalDate careDate) {
+        if (Objects.isNull(currentNextCareAt) || Objects.isNull(repairedNextCareAt) || Objects.isNull(careDate)) {
+            return false;
+        }
+        LocalDate currentDate = currentNextCareAt.toLocalDate();
+        LocalDate repairedDate = repairedNextCareAt.toLocalDate();
+        return !currentDate.isAfter(careDate) && repairedDate.isAfter(careDate);
     }
 
     private LocalDateTime resolveNextCareAt(CreatePlantCareRecordRequest request, LocalDate careDate) {
@@ -209,6 +266,22 @@ public class PlantService {
         if (StringUtils.isBlank(sourceText)) {
             return null;
         }
+        LocalDate baseDate = Objects.isNull(careDate) ? timeProvider.today() : careDate;
+        List<LocalDate> sameYearCandidates = extractMonthDayCandidates(sourceText, baseDate);
+        if (sameYearCandidates.isEmpty()) {
+            return null;
+        }
+        LocalDate selectedDate = selectNextCareDate(sameYearCandidates, baseDate);
+        if (Objects.isNull(selectedDate)) {
+            return null;
+        }
+        return LocalDateTime.of(selectedDate, DEFAULT_NEXT_CARE_TIME);
+    }
+
+    private LocalDateTime parseLegacyNextCareAtFromText(String sourceText, LocalDate careDate) {
+        if (StringUtils.isBlank(sourceText)) {
+            return null;
+        }
         Matcher matcher = MONTH_DAY_PATTERN.matcher(sourceText);
         if (!matcher.find()) {
             return null;
@@ -221,10 +294,50 @@ public class PlantService {
             if (candidate.isBefore(baseDate)) {
                 candidate = candidate.plusYears(1);
             }
-            return LocalDateTime.of(candidate, LocalTime.of(9, 0));
+            return LocalDateTime.of(candidate, DEFAULT_NEXT_CARE_TIME);
         } catch (RuntimeException exception) {
             return null;
         }
+    }
+
+    private List<LocalDate> extractMonthDayCandidates(String sourceText, LocalDate baseDate) {
+        Matcher matcher = MONTH_DAY_PATTERN.matcher(sourceText);
+        List<LocalDate> candidates = new ArrayList<>();
+        while (matcher.find()) {
+            int month = Integer.parseInt(matcher.group(1));
+            int day = Integer.parseInt(matcher.group(2));
+            try {
+                candidates.add(LocalDate.of(baseDate.getYear(), month, day));
+            } catch (RuntimeException exception) {
+                // 忽略无效月日，继续尝试后续候选。
+            }
+        }
+        return candidates;
+    }
+
+    private LocalDate selectNextCareDate(List<LocalDate> candidates, LocalDate baseDate) {
+        LocalDate selectedDate = null;
+        for (LocalDate candidate : candidates) {
+            if (candidate.isBefore(baseDate)) {
+                continue;
+            }
+            if (Objects.isNull(selectedDate) || candidate.isBefore(selectedDate)) {
+                selectedDate = candidate;
+            }
+        }
+        if (Objects.nonNull(selectedDate)) {
+            return selectedDate;
+        }
+        if (candidates.size() == 1) {
+            return null;
+        }
+        for (LocalDate candidate : candidates) {
+            LocalDate nextYearCandidate = candidate.plusYears(1);
+            if (Objects.isNull(selectedDate) || nextYearCandidate.isBefore(selectedDate)) {
+                selectedDate = nextYearCandidate;
+            }
+        }
+        return selectedDate;
     }
 
     private void ensurePlantExists(Long plantId) {
@@ -238,5 +351,49 @@ public class PlantService {
             return ((Number) value).longValue();
         }
         throw new BusinessException("PLANT_CARE_RECORD_NOT_FOUND", "养护记录不存在或已删除");
+    }
+
+    private LocalDate localDateValue(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+        if (value instanceof LocalDate) {
+            return (LocalDate) value;
+        }
+        if (value instanceof java.sql.Date) {
+            return ((java.sql.Date) value).toLocalDate();
+        }
+        if (value instanceof String) {
+            try {
+                return LocalDate.parse((String) value);
+            } catch (DateTimeParseException exception) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private LocalDateTime localDateTimeValue(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+        if (value instanceof LocalDateTime) {
+            return (LocalDateTime) value;
+        }
+        if (value instanceof java.sql.Timestamp) {
+            return ((java.sql.Timestamp) value).toLocalDateTime();
+        }
+        if (value instanceof String) {
+            try {
+                return LocalDateTime.parse((String) value);
+            } catch (DateTimeParseException exception) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private String textValue(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+        if (Objects.isNull(value)) {
+            return "";
+        }
+        return String.valueOf(value);
     }
 }

@@ -157,6 +157,37 @@ public class PlantRepository {
     }
 
     /**
+     * 查询需要修复的养护记录。
+     *
+     * @param familyId 家庭 ID
+     * @return 养护记录
+     */
+    public List<Map<String, Object>> findCareRecordsForRepair(Long familyId) {
+        return jdbcTemplate.queryForList(
+                "SELECT id, family_id, plant_id, care_date, detail, raw_text, next_care_at "
+                        + "FROM plant_care_record WHERE family_id = ? AND deleted = 0 AND next_care_at IS NOT NULL",
+                familyId);
+    }
+
+    /**
+     * 更新养护记录的下次养护时间。
+     *
+     * @param recordId 记录 ID
+     * @param familyId 家庭 ID
+     * @param nextCareAt 下次养护时间
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int updateCareRecordNextCareAt(Long recordId, Long familyId, LocalDateTime nextCareAt, Long operatorId,
+            LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE plant_care_record SET next_care_at = ?, updated_at = ?, updated_by = ? "
+                        + "WHERE id = ? AND family_id = ? AND deleted = 0",
+                nextCareAt, now, operatorId, recordId, familyId);
+    }
+
+    /**
      * 删除花卉。
      *
      * @param plantId 花卉 ID

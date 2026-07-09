@@ -463,6 +463,15 @@ let messageTimer: number | undefined;
 let refreshTimer: number | undefined;
 
 const pendingReminders = computed(() => reminders.value.filter((item) => text(item, "status") === "PENDING"));
+const pendingPlantCareReminders = computed(() =>
+  [...pendingReminders.value]
+    .filter((item) => text(item, "source_type") === "PLANT_CARE")
+    .sort((left, right) => {
+      const leftTime = dateTimeFromValue(text(left, "due_at"))?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const rightTime = dateTimeFromValue(text(right, "due_at"))?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      return leftTime - rightTime;
+    })
+);
 const openTodoTasks = computed(() => todoTasks.value.filter((item) => text(item, "status") === "TODO"));
 const completedTodoTasks = computed(() => todoTasks.value.filter((item) => text(item, "status") === "DONE"));
 const periodProfile = computed<AnyRow>(() => ((periodSummary.value.profile as AnyRow) ?? {}) as AnyRow);
@@ -473,6 +482,7 @@ const periodPrediction = computed<AnyRow>(() => ((periodSummary.value.prediction
 const currentPlant = computed(() =>
   plants.value.find((plant) => text(plant, "id") === selectedPlantId.value)
 );
+const nextPendingPlantCareReminder = computed<AnyRow | null>(() => pendingPlantCareReminders.value[0] ?? null);
 const myTodoTasks = computed(() =>
   openTodoTasks.value.filter((item) => hasTaskAssignee(item, String(currentUser.value.memberId ?? "")))
 );
@@ -3671,11 +3681,13 @@ watch(
         >
           <button class="drawer-module-open" type="button" @click="openTab(entry.key)">
             <component :is="entry.icon" :size="18" />
-            <div>
-              <strong>{{ entry.label }}</strong>
+            <div class="drawer-module-copy">
+              <div class="drawer-module-head">
+                <strong>{{ entry.label }}</strong>
+                <small>{{ entry.value }}</small>
+              </div>
               <span>{{ entry.description }}</span>
             </div>
-            <small>{{ entry.value }}</small>
           </button>
           <button
             class="home-module-grip"
@@ -4072,6 +4084,22 @@ watch(
     </section>
 
     <section v-if="activeTab === 'care'" class="view">
+      <article v-if="careView === 'list'" class="list-card care-overview-card">
+        <div class="section-title">
+          <h2>待养护</h2>
+          <span>{{ pendingPlantCareReminders.length }}</span>
+        </div>
+        <p v-if="pendingPlantCareReminders.length === 0" class="empty">最近没有待养护项目</p>
+        <template v-else>
+          <div class="feed-item">
+            <span>最近待处理</span>
+            <p>{{ text(nextPendingPlantCareReminder ?? {}, "title") }}</p>
+            <small>{{ formatDateTime(text(nextPendingPlantCareReminder ?? {}, "due_at")) }}</small>
+          </div>
+          <small class="muted">当前还有 {{ pendingPlantCareReminders.length }} 条待养护提醒，处理后会自动同步更新。</small>
+        </template>
+      </article>
+
       <article v-if="careView === 'list'" class="list-card">
         <div class="section-title">
           <h2>养护历史</h2>

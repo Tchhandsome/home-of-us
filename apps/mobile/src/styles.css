@@ -220,13 +220,13 @@ svg {
   left: max(12px, calc(50% - 240px));
   z-index: 26;
   display: grid;
-  gap: 14px;
-  width: min(86vw, 360px);
+  gap: 12px;
+  width: min(82vw, 344px);
   height: 100vh;
-  padding: calc(18px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));
+  padding: calc(18px + env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom));
   border-right: 0.5px solid rgba(60, 60, 67, 0.12);
-  background: rgba(249, 249, 251, 0.92);
-  box-shadow: 18px 0 42px rgba(15, 23, 42, 0.12);
+  background: rgba(246, 247, 251, 0.94);
+  box-shadow: 18px 0 42px rgba(15, 23, 42, 0.14);
   transform: translateX(-112%);
   transition: transform 220ms ease;
   backdrop-filter: blur(24px) saturate(1.5);
@@ -238,7 +238,7 @@ svg {
 
 .drawer-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   align-content: start;
   overflow-y: auto;
   padding-right: 4px;
@@ -248,8 +248,8 @@ svg {
   position: relative;
   overflow: hidden;
   border: 0.5px solid rgba(60, 60, 67, 0.11);
-  border-radius: 18px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
+  border-radius: 22px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
 }
 
 .drawer-module-card.dragging {
@@ -259,12 +259,12 @@ svg {
 
 .drawer-module-open {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
   width: 100%;
-  min-height: 74px;
-  padding: 14px 46px 14px 14px;
+  min-height: 82px;
+  padding: 14px 54px 14px 14px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -277,15 +277,23 @@ svg {
   box-shadow: inset 0 0 0 0.5px rgba(60, 60, 67, 0.12);
 }
 
-.drawer-module-open div {
+.drawer-module-copy {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
+}
+
+.drawer-module-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .drawer-module-open strong {
   color: #111827;
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 800;
   line-height: 1.2;
 }
 
@@ -296,9 +304,14 @@ svg {
 }
 
 .drawer-module-open small {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
   color: #111827;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
+  box-shadow: inset 0 0 0 0.5px rgba(60, 60, 67, 0.1);
 }
 
 .view {
@@ -890,7 +903,7 @@ select {
 
 .home-module-grip {
   position: absolute;
-  top: 10px;
+  top: 50%;
   right: 10px;
   width: 30px;
   height: 30px;
@@ -900,6 +913,7 @@ select {
   color: #6b7280;
   box-shadow: inset 0 0 0 0.5px rgba(60, 60, 67, 0.12);
   cursor: grab;
+  transform: translateY(-50%);
 }
 
 .plant-card,
@@ -1270,11 +1284,11 @@ select {
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .calendar-card {
-  gap: 14px;
+  gap: 12px;
 }
 
 .calendar-next-icon {
@@ -1284,7 +1298,7 @@ select {
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .calendar-weekdays span {
@@ -1298,15 +1312,15 @@ select {
   display: grid;
   align-content: space-between;
   justify-items: center;
-  min-height: 74px;
-  padding: 10px 6px;
-  border-radius: 16px;
+  min-height: 58px;
+  padding: 8px 4px;
+  border-radius: 14px;
   background: rgba(118, 118, 128, 0.08);
   color: #111827;
 }
 
 .calendar-cell strong {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -1328,8 +1342,8 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-height: 12px;
+  gap: 3px;
+  min-height: 10px;
   flex-wrap: wrap;
 }
 
@@ -1414,8 +1428,8 @@ select {
 .mini-metric {
   display: grid;
   gap: 6px;
-  min-height: 78px;
-  padding: 12px;
+  min-height: 68px;
+  padding: 10px 12px;
   border: 0.5px solid rgba(60, 60, 67, 0.11);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.92);
@@ -1431,7 +1445,7 @@ select {
 .mini-metric strong {
   overflow-wrap: anywhere;
   color: #111827;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
   line-height: 1.2;
 }
@@ -1700,6 +1714,11 @@ select {
   .summary-strip,
   .segmented-control {
     grid-template-columns: 1fr;
+  }
+
+  .calendar-cell {
+    min-height: 52px;
+    padding: 7px 3px;
   }
 
   .pet-overview {

@@ -128,6 +128,47 @@ public class ReminderRepository {
     }
 
     /**
+     * 按来源更新时间。
+     *
+     * @param familyId 家庭 ID
+     * @param sourceType 来源类型
+     * @param sourceId 来源 ID
+     * @param oldDueAt 原到期时间
+     * @param newDueAt 新到期时间
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int updateDueAtBySource(Long familyId, String sourceType, Long sourceId, LocalDateTime oldDueAt,
+            LocalDateTime newDueAt, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE reminder SET due_at = ?, updated_at = ?, updated_by = ? "
+                        + "WHERE family_id = ? AND source_type = ? AND source_id = ? AND due_at = ? "
+                        + "AND status = 'PENDING' AND deleted = 0",
+                newDueAt, now, operatorId, familyId, sourceType, sourceId, oldDueAt);
+    }
+
+    /**
+     * 按来源逻辑删除提醒。
+     *
+     * @param familyId 家庭 ID
+     * @param sourceType 来源类型
+     * @param sourceId 来源 ID
+     * @param oldDueAt 原到期时间
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int deleteBySourceAndDueAt(Long familyId, String sourceType, Long sourceId, LocalDateTime oldDueAt,
+            Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE reminder SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE family_id = ? AND source_type = ? AND source_id = ? AND due_at = ? "
+                        + "AND status = 'PENDING' AND deleted = 0",
+                now, operatorId, familyId, sourceType, sourceId, oldDueAt);
+    }
+
+    /**
      * 查询待处理提醒数量。
      *
      * @param familyId 家庭 ID
