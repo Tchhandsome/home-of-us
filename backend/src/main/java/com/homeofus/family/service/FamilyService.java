@@ -38,10 +38,10 @@ public class FamilyService {
     private static final String HOME_VIEW_MODE_KEY = "homeViewMode";
 
     private static final List<String> DEFAULT_HOME_CARD_ORDER = List.of("todo", "plants", "care", "shopping",
-            "finance", "reminders", "period", "members", "album", "pets", "inventory", "recipes", "private",
-            "profile");
+            "finance", "reminders", "period", "members", "album", "pets", "votes", "inventory", "recipes",
+            "private", "profile");
 
-    private static final String DEFAULT_HOME_VIEW_MODE = "calendar";
+    private static final String DEFAULT_HOME_VIEW_MODE = "cards";
 
     private static final List<String> HOME_VIEW_MODES = List.of("calendar", "cards");
 

@@ -30,7 +30,6 @@ import {
   Lock,
   LogOut,
   LoaderCircle,
-  Menu,
   MessageSquare,
   Package,
   PawPrint,
@@ -64,6 +63,7 @@ type TabKey =
   | "profile"
   | "album"
   | "pets"
+  | "votes"
   | "inventory"
   | "recipes";
 
@@ -81,6 +81,7 @@ type HomeCardKey =
   | "members"
   | "album"
   | "pets"
+  | "votes"
   | "profile"
   | "inventory"
   | "recipes";
@@ -96,7 +97,6 @@ type FinanceViewKey = "list" | "create";
 type PrivateViewKey = "list" | "create" | "edit";
 type PeriodViewKey = "list" | "profile" | "record";
 type InventoryViewKey = "list" | "create" | "edit";
-type InventorySegmentKey = "items" | "votes";
 type VoteViewKey = "list" | "create";
 type RecipeViewKey = "list" | "create" | "edit" | "week" | "mealPlanCreate";
 type ShoppingViewKey = "list" | "create";
@@ -140,6 +140,26 @@ type PlantLocationOption = {
   label: string;
   icon: Component;
 };
+type PlantStatusTagTone = "done" | "due" | "late";
+type PlantStatusTag = {
+  icon: Component;
+  text: string;
+  tone: PlantStatusTagTone;
+};
+type PlantTrendDay = {
+  key: string;
+  active: boolean;
+  label: string;
+};
+type PlantCareBadge = {
+  key: string;
+  label: string;
+  active: boolean;
+};
+type PlantAchievementContent = {
+  title: string;
+  subtitle: string;
+};
 type PetQuickActionKey = "FEED" | "DEWORMING" | "BATH";
 type PetTaskTone = "calm" | "soon" | "late";
 type PetTaskFlowItem = {
@@ -180,6 +200,7 @@ const defaultHomeCardOrder: HomeCardKey[] = [
   "members",
   "album",
   "pets",
+  "votes",
   "inventory",
   "recipes",
   "private",
@@ -206,7 +227,6 @@ const groupedDrawerChildren: Record<"flowers" | "familyMembers" | "coupleWorld" 
 };
 
 const activeTab = ref<TabKey>("today");
-const drawerOpen = ref(false);
 const loading = ref(false);
 const isAuthenticated = ref(false);
 const message = ref("");
@@ -272,14 +292,13 @@ const privateView = ref<PrivateViewKey>("list");
 const periodView = ref<PeriodViewKey>("list");
 const memoryView = ref<MemoryViewKey>("list");
 const inventoryView = ref<InventoryViewKey>("list");
-const inventorySegment = ref<InventorySegmentKey>("items");
 const voteView = ref<VoteViewKey>("list");
 const recipeView = ref<RecipeViewKey>("list");
 const shoppingView = ref<ShoppingViewKey>("list");
-const homeViewMode = ref<HomeViewMode>("calendar");
+const homeViewMode = ref<HomeViewMode>("cards");
 const homeCardOrder = ref<HomeCardKey[]>([...defaultHomeCardOrder]);
 const savedHomeCardOrder = ref<HomeCardKey[]>([...defaultHomeCardOrder]);
-const savedHomeViewMode = ref<HomeViewMode>("calendar");
+const savedHomeViewMode = ref<HomeViewMode>("cards");
 const homeCardDraggingKey = ref<DrawerEntryKey | "">("");
 const actionKey = ref("");
 const selectedTodoId = ref("");
@@ -332,6 +351,8 @@ const quickCareDraft = ref({
 });
 const plantAchievementVisible = ref(false);
 const plantAchievementKey = ref(0);
+const plantAchievementTitle = ref("守护天数 +1");
+const plantAchievementSubtitle = ref("今天也把花花照顾得很好");
 const shoppingDraft = ref({
   name: "",
   quantity: "",
@@ -614,6 +635,66 @@ const quickCarePlant = computed(() =>
   plants.value.find((plant) => text(plant, "id") === quickCareDraft.value.plantId)
 );
 const nextPendingPlantCareReminder = computed<AnyRow | null>(() => pendingPlantCareReminders.value[0] ?? null);
+const careRecordsByPlantId = computed<Record<string, AnyRow[]>>(() => {
+  const grouped: Record<string, AnyRow[]> = {};
+  allCareRecords.value.forEach((record) => {
+    const plantId = text(record, "plant_id");
+    if (!plantId) {
+      return;
+    }
+    if (!grouped[plantId]) {
+      grouped[plantId] = [];
+    }
+    grouped[plantId].push(record);
+  });
+  return grouped;
+});
+const careRecordById = computed<Record<string, AnyRow>>(() => {
+  const lookup: Record<string, AnyRow> = {};
+  allCareRecords.value.forEach((record) => {
+    const recordId = text(record, "id");
+    if (recordId) {
+      lookup[recordId] = record;
+    }
+  });
+  return lookup;
+});
+const nextPlantReminderByPlantId = computed<Record<string, AnyRow>>(() => {
+  const lookup: Record<string, AnyRow> = {};
+  pendingPlantCareReminders.value.forEach((reminder) => {
+    const sourceId = text(reminder, "source_id");
+    const record = careRecordById.value[sourceId];
+    const plantId = text(record ?? {}, "plant_id");
+    if (!plantId) {
+      return;
+    }
+    const currentDueAt = text(reminder, "due_at");
+    const existingDueAt = text(lookup[plantId] ?? {}, "due_at");
+    const currentTime = dateTimeFromValue(currentDueAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const existingTime = dateTimeFromValue(existingDueAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    if (!lookup[plantId] || currentTime < existingTime) {
+      lookup[plantId] = reminder;
+    }
+  });
+  return lookup;
+});
+const todayDuePlants = computed<AnyRow[]>(() =>
+  plants.value.filter((plant) => {
+    const reminder = nextPlantReminderByPlantId.value[text(plant, "id")];
+    const diff = daysFromToday(text(reminder ?? {}, "due_at"));
+    return diff !== null && diff <= 0;
+  })
+);
+const todayDuePlantNames = computed(() => todayDuePlants.value.map((plant) => text(plant, "name")).filter(Boolean));
+const todayDuePlantSummary = computed(() => {
+  if (todayDuePlantNames.value.length === 0) {
+    return "今天暂无到点花花";
+  }
+  if (todayDuePlantNames.value.length <= 2) {
+    return `今日需操作：${todayDuePlantNames.value.join("、")}`;
+  }
+  return `今日需操作：${todayDuePlantNames.value.slice(0, 2).join("、")}等${todayDuePlantNames.value.length}盆`;
+});
 const plantCareDaysThisMonth = computed(() => {
   const monthPrefix = getTodayDateValue().slice(0, 7);
   const careDays = new Set<string>();
@@ -625,7 +706,76 @@ const plantCareDaysThisMonth = computed(() => {
   });
   return careDays.size;
 });
+const previousPlantCareDays = computed(() => {
+  const currentMonthStart = dateFromValue(getMonthStartValue()) ?? new Date();
+  currentMonthStart.setMonth(currentMonthStart.getMonth() - 1, 1);
+  const previousPrefix = `${currentMonthStart.getFullYear()}-${`${currentMonthStart.getMonth() + 1}`.padStart(2, "0")}`;
+  const careDays = new Set<string>();
+  allCareRecords.value.forEach((record) => {
+    const careDate = text(record, "care_date");
+    if (careDate.startsWith(previousPrefix)) {
+      careDays.add(careDate);
+    }
+  });
+  return careDays.size;
+});
+const plantCareMonthTotalDays = computed(() => {
+  const todayDate = new Date();
+  return new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0).getDate();
+});
+const plantCareDelta = computed(() => plantCareDaysThisMonth.value - previousPlantCareDays.value);
+const plantCareDeltaLabel = computed(() => {
+  if (plantCareDelta.value === 0) {
+    return "和上月持平";
+  }
+  if (plantCareDelta.value > 0) {
+    return `较上月多 ${plantCareDelta.value} 天`;
+  }
+  return `较上月少 ${Math.abs(plantCareDelta.value)} 天`;
+});
+const plantTrendDays = computed<PlantTrendDay[]>(() => {
+  const monthPrefix = getTodayDateValue().slice(0, 7);
+  const activeDays = new Set<number>();
+  allCareRecords.value.forEach((record) => {
+    const careDate = text(record, "care_date");
+    if (!careDate.startsWith(monthPrefix)) {
+      return;
+    }
+    const dayNumber = Number(careDate.slice(8, 10));
+    if (Number.isFinite(dayNumber) && dayNumber > 0) {
+      activeDays.add(dayNumber);
+    }
+  });
+  return Array.from({ length: plantCareMonthTotalDays.value }, (_, index) => ({
+    key: `plant-trend-${index + 1}`,
+    active: activeDays.has(index + 1),
+    label: `${index + 1}`
+  }));
+});
+const plantCareBadges = computed<PlantCareBadge[]>(() => [
+  {
+    key: "badge-7",
+    label: "绿手指 · 7日坚持",
+    active: plantCareDaysThisMonth.value >= 7
+  },
+  {
+    key: "badge-15",
+    label: "花花守望 · 15日坚持",
+    active: plantCareDaysThisMonth.value >= 15
+  },
+  {
+    key: "badge-full",
+    label: "本月全勤",
+    active: plantCareDaysThisMonth.value >= plantCareMonthTotalDays.value
+  }
+]);
 const plantOverviewSummary = computed(() => {
+  if (todayDuePlantNames.value.length > 0) {
+    return todayDuePlantSummary.value;
+  }
+  if (nextPendingPlantCareReminder.value) {
+    return `${text(nextPendingPlantCareReminder.value, "title")} · ${relativeDaysLabel(text(nextPendingPlantCareReminder.value, "due_at"))}`;
+  }
   if (pendingPlantCareReminders.value.length > 0) {
     return `还有 ${pendingPlantCareReminders.value.length} 条待养护`;
   }
@@ -735,7 +885,7 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
     key: "shopping",
     label: "清单",
     value: `${todoShoppingItems.value.length}项`,
-    description: "待买事项一眼可见",
+    description: "待买事项",
     tone: "tile-coral",
     icon: ClipboardList
   },
@@ -767,7 +917,7 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
     key: "private",
     label: "私密",
     value: `${privateMessages.value.length}条`,
-    description: "悄悄话和共享留言",
+    description: "悄悄话和留言",
     tone: "tile-plum",
     icon: MessageSquare
   },
@@ -775,7 +925,7 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
     key: "members",
     label: "成员",
     value: `${familyMembers.value.length}位`,
-    description: "查看与维护家庭成员",
+    description: "角色与资料",
     tone: "tile-ink",
     icon: Users
   },
@@ -797,11 +947,22 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
     tone: "tile-gold",
     icon: PawPrint
   },
+  votes: {
+    key: "votes",
+    label: "投票",
+    value: `${openFamilyVotes.value.length}场进行中`,
+    description:
+      openFamilyVotes.value.length > 0
+        ? `待决定 ${openFamilyVotes.value.length} 场，历史 ${historyFamilyVotes.value.length} 场`
+        : "吃什么、去哪玩都能快速表决",
+    tone: "tile-plum",
+    icon: Send
+  },
   inventory: {
     key: "inventory",
     label: "库存",
     value: `${lowInventoryItems.value.length}项`,
-    description: "库存预警和家庭投票",
+    description: "消耗品、食品与库存提醒",
     tone: "tile-emerald",
     icon: Package
   },
@@ -809,7 +970,7 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
     key: "recipes",
     label: "菜谱",
     value: `${recipes.value.length}道`,
-    description: "菜谱库和一周餐单",
+    description: "菜谱与餐单",
     tone: "tile-gold",
     icon: ChefHat
   },
@@ -828,8 +989,8 @@ const drawerGroupDefinitions = computed<
   flowers: {
     key: "flowers",
     label: "花花",
-    value: `${plants.value.length}盆 · ${pendingPlantCareReminders.value.length}待养护`,
-    description: "花卉档案和养护打卡放在一起",
+    value: `${pendingPlantCareReminders.value.length}待养护`,
+    description: todayDuePlantSummary.value,
     tone: "tile-green",
     icon: Leaf
   },
@@ -837,7 +998,7 @@ const drawerGroupDefinitions = computed<
     key: "familyMembers",
     label: "家庭成员",
     value: `${familyMembers.value.length}位 · ${pets.value.length}只`,
-    description: "大人和宠物统一管理",
+    description: "大人和宠物",
     tone: "tile-ink",
     icon: Users
   },
@@ -845,7 +1006,7 @@ const drawerGroupDefinitions = computed<
     key: "coupleWorld",
     label: "二人世界",
     value: `${albumPhotos.value.length}条时刻 · ${privateMessages.value.length}条留言`,
-    description: "纪念时刻和悄悄话都在这里",
+    description: "时刻与留言",
     tone: "tile-coral",
     icon: Heart
   },
@@ -853,7 +1014,7 @@ const drawerGroupDefinitions = computed<
     key: "misc",
     label: "杂项",
     value: `${lowInventoryItems.value.length}项提醒 · ${recipes.value.length}道菜`,
-    description: "物资和菜谱先收纳到一处",
+    description: "物资和菜谱",
     tone: "tile-emerald",
     icon: Package
   }
@@ -950,10 +1111,10 @@ const headerTitle = computed(() => {
   if (activeTab.value === "album") {
     return memoryView.value === "create" ? "新增时刻" : memoryView.value === "edit" ? "编辑时刻" : "时刻墙";
   }
+  if (activeTab.value === "votes") {
+    return voteView.value === "create" ? "新增投票" : "家庭投票";
+  }
   if (activeTab.value === "inventory") {
-    if (inventorySegment.value === "votes") {
-      return voteView.value === "create" ? "新增投票" : "家庭投票";
-    }
     return inventoryView.value === "create" ? "新增物资" : inventoryView.value === "edit" ? "编辑物资" : "库存与物资";
   }
   if (activeTab.value === "recipes") {
@@ -1149,7 +1310,7 @@ function applyHomeCardOrder(keys: string[]) {
 }
 
 function normalizeHomeViewMode(value: string): HomeViewMode {
-  return value === "cards" ? "cards" : "calendar";
+  return value === "calendar" ? "calendar" : "cards";
 }
 
 function applyHomeViewMode(value: string) {
@@ -1270,6 +1431,87 @@ function careTypeLabel(code: string): string {
       OBSERVE: "观察"
     }[code] ?? code
   );
+}
+
+function plantStatusTag(plant: AnyRow): PlantStatusTag | null {
+  const plantId = text(plant, "id");
+  if (!plantId) {
+    return null;
+  }
+  const records = careRecordsByPlantId.value[plantId] ?? [];
+  if (records.some((record) => text(record, "care_date") === getTodayDateValue())) {
+    return {
+      icon: Check,
+      text: "今日已养护",
+      tone: "done"
+    };
+  }
+  const reminder = nextPlantReminderByPlantId.value[plantId];
+  if (!reminder) {
+    return null;
+  }
+  const diff = daysFromToday(text(reminder, "due_at"));
+  if (diff === null) {
+    return null;
+  }
+  if (diff < 0) {
+    return {
+      icon: Bell,
+      text: `已逾期${Math.abs(diff)}天`,
+      tone: "late"
+    };
+  }
+  if (diff === 0) {
+    return {
+      icon: Bell,
+      text: "今日需养护",
+      tone: "due"
+    };
+  }
+  return {
+    icon: Bell,
+    text: `${diff}天后需养护`,
+    tone: "due"
+  };
+}
+
+function resolveQuickCareDetail(draft: { careType: string; detail: string }): string {
+  const trimmedDetail = draft.detail.trim();
+  if (trimmedDetail) {
+    return trimmedDetail;
+  }
+  return `今日完成${careTypeLabel(draft.careType)}签到`;
+}
+
+function resolvePlantAchievementContent(previousDays: number, currentDays: number): PlantAchievementContent {
+  if (currentDays >= plantCareMonthTotalDays.value && previousDays < plantCareMonthTotalDays.value) {
+    return {
+      title: "本月全勤达成",
+      subtitle: "这一个月的花花每天都被认真照顾"
+    };
+  }
+  if (currentDays >= 15 && previousDays < 15) {
+    return {
+      title: "花花守望 · 15日坚持",
+      subtitle: "已经把照顾植物变成很自然的日常了"
+    };
+  }
+  if (currentDays >= 7 && previousDays < 7) {
+    return {
+      title: "绿手指 · 7日坚持",
+      subtitle: "连续把花花放在心上，状态很棒"
+    };
+  }
+  if (currentDays > previousDays) {
+    return {
+      title: "守护天数 +1",
+      subtitle: "今天也把花花照顾得很好"
+    };
+  }
+  return {
+    title: "今日签到成功",
+    subtitle: "今天的照顾已经记录好了"
+  };
 }
 
 function memoryEntryTypeLabel(code: string): string {
@@ -2243,8 +2485,10 @@ function resetPetWeightDraft() {
   };
 }
 
-function triggerPlantAchievement() {
+function triggerPlantAchievement(content: PlantAchievementContent) {
   plantAchievementKey.value += 1;
+  plantAchievementTitle.value = content.title;
+  plantAchievementSubtitle.value = content.subtitle;
   plantAchievementVisible.value = true;
   if (plantAchievementTimer) {
     window.clearTimeout(plantAchievementTimer);
@@ -2256,7 +2500,6 @@ function triggerPlantAchievement() {
 
 function openTab(tab: TabKey) {
   activeTab.value = tab;
-  drawerOpen.value = false;
   quickCareOpen.value = false;
   petQuickActionOpen.value = false;
   petWeightOpen.value = false;
@@ -2291,10 +2534,11 @@ function openTab(tab: TabKey) {
   if (tab === "album") {
     memoryView.value = "list";
   }
-  if (tab === "inventory") {
-    inventorySegment.value = "items";
-    inventoryView.value = "list";
+  if (tab === "votes") {
     voteView.value = "list";
+  }
+  if (tab === "inventory") {
+    inventoryView.value = "list";
   }
   if (tab === "recipes") {
     recipeView.value = "list";
@@ -2305,7 +2549,6 @@ function openTab(tab: TabKey) {
 }
 
 function goHome() {
-  drawerOpen.value = false;
   quickCareOpen.value = false;
   petQuickActionOpen.value = false;
   petWeightOpen.value = false;
@@ -2404,12 +2647,16 @@ function goBack() {
     goHome();
     return;
   }
-  if (activeTab.value === "inventory") {
-    if (inventorySegment.value === "votes" && voteView.value !== "list") {
+  if (activeTab.value === "votes") {
+    if (voteView.value !== "list") {
       voteView.value = "list";
       return;
     }
-    if (inventorySegment.value === "items" && inventoryView.value !== "list") {
+    goHome();
+    return;
+  }
+  if (activeTab.value === "inventory") {
+    if (inventoryView.value !== "list") {
       inventoryView.value = "list";
       return;
     }
@@ -2757,7 +3004,6 @@ function resetDataState() {
     window.clearTimeout(plantAchievementTimer);
     plantAchievementTimer = undefined;
   }
-  drawerOpen.value = false;
   currentUser.value = {};
   family.value = {};
   today.value = {
@@ -2817,6 +3063,8 @@ function resetDataState() {
   petQuickActionOpen.value = false;
   petWeightOpen.value = false;
   plantAchievementVisible.value = false;
+  plantAchievementTitle.value = "守护天数 +1";
+  plantAchievementSubtitle.value = "今天也把花花照顾得很好";
   resetQuickCareDraft();
   resetPetQuickActionDraft();
   resetPetWeightDraft();
@@ -2832,12 +3080,11 @@ function resetDataState() {
   profileView.value = "detail";
   memoryView.value = "list";
   inventoryView.value = "list";
-  inventorySegment.value = "items";
   voteView.value = "list";
   recipeView.value = "list";
   shoppingView.value = "list";
-  homeViewMode.value = "calendar";
-  savedHomeViewMode.value = "calendar";
+  homeViewMode.value = "cards";
+  savedHomeViewMode.value = "cards";
   petView.value = "list";
   profilePasswordVisible.value = false;
   profilePasswordHintVisible.value = false;
@@ -3419,7 +3666,7 @@ async function submitVoteCreate() {
     });
     resetVoteDraft();
     voteView.value = "list";
-    inventorySegment.value = "votes";
+    activeTab.value = "votes";
     await loadAll();
     showMessage("投票已创建");
   });
@@ -3643,19 +3890,24 @@ async function saveCareRecord(
   plantId: number,
   draft: { careType: string; detail: string; nextCareAt: string },
   actionName: string,
-  successMessage: string
+  successMessage: string,
+  options: {
+    allowEmptyDetail?: boolean;
+    autoDetail?: string;
+  } = {}
 ) {
   if (!Number.isFinite(plantId) || plantId <= 0) {
     showMessage("请先选择花卉", "error");
     return false;
   }
-  const detail = draft.detail.trim();
+  const detail = draft.detail.trim() || (options.allowEmptyDetail ? options.autoDetail || "" : "");
   if (!detail) {
     showMessage("请先填写养护内容", "error");
     return false;
   }
   let created = false;
   await executeAction(actionName, "保存养护记录失败", async () => {
+    const previousCareDays = plantCareDaysThisMonth.value;
     await api.createCareRecord(plantId, {
       careType: draft.careType,
       careDate: getTodayDateValue(),
@@ -3665,7 +3917,7 @@ async function saveCareRecord(
     });
     selectedPlantId.value = String(plantId);
     await loadAll();
-    triggerPlantAchievement();
+    triggerPlantAchievement(resolvePlantAchievementContent(previousCareDays, plantCareDaysThisMonth.value));
     showMessage(successMessage);
     created = true;
   });
@@ -3684,7 +3936,10 @@ async function submitCareRecord() {
 
 async function submitQuickCareRecord() {
   const plantId = Number(quickCareDraft.value.plantId);
-  const saved = await saveCareRecord(plantId, quickCareDraft.value, `care-quick-${plantId}`, "已标记今日养护");
+  const saved = await saveCareRecord(plantId, quickCareDraft.value, `care-quick-${plantId}`, "今日养护已签到", {
+    allowEmptyDetail: true,
+    autoDetail: resolveQuickCareDetail(quickCareDraft.value)
+  });
   if (!saved) {
     return;
   }
@@ -4358,20 +4613,10 @@ watch(
   </main>
 
   <main v-else class="mobile-shell">
-    <header class="topbar">
-      <div class="topbar-main">
+    <header :class="['topbar', { 'home-topbar': activeTab === 'today' }]">
+      <div :class="['topbar-main', { 'home-topbar-main': activeTab === 'today' }]">
         <button
-          v-if="activeTab === 'today'"
-          class="icon-button"
-          type="button"
-          aria-label="打开模块抽屉"
-          title="打开模块抽屉"
-          @click="drawerOpen = true"
-        >
-          <Menu :size="19" />
-        </button>
-        <button
-          v-else
+          v-if="activeTab !== 'today'"
           class="icon-button"
           type="button"
           aria-label="返回上一层"
@@ -4380,14 +4625,26 @@ watch(
         >
           <ArrowLeft :size="19" />
         </button>
-        <div>
+        <div :class="{ 'home-topbar-copy': activeTab === 'today' }">
           <p class="eyebrow">{{ activeTab === "today" ? "Home Of Us" : "返回上一层" }}</p>
           <h1>{{ headerTitle }}</h1>
         </div>
       </div>
       <div class="top-actions">
         <button v-if="activeTab === 'today'" class="user-chip" type="button" @click="openTab('profile')">
-          <User :size="16" />
+          <span
+            class="user-chip-avatar"
+            :style="{ background: text(currentUser, 'avatarUrl') ? 'transparent' : text(currentUser, 'avatarColor') || '#2F6B4F' }"
+          >
+            <img
+              v-if="text(currentUser, 'avatarUrl')"
+              :src="text(currentUser, 'avatarUrl')"
+              alt="头像"
+              loading="lazy"
+              decoding="async"
+            />
+            <template v-else>{{ (text(currentUser, "displayName") || "我").slice(0, 1) }}</template>
+          </span>
           <span>{{ text(currentUser, "displayName") }}</span>
         </button>
         <button
@@ -4408,73 +4665,6 @@ watch(
         </button>
       </div>
     </header>
-
-    <div v-if="drawerOpen" class="drawer-backdrop" @click="drawerOpen = false" />
-    <aside :class="['module-drawer', { open: drawerOpen }]">
-      <div class="section-title">
-        <h2>模块入口</h2>
-        <button class="icon-button" type="button" aria-label="关闭模块抽屉" title="关闭模块抽屉" @click="drawerOpen = false">
-          <ArrowLeft :size="18" />
-        </button>
-      </div>
-      <div class="drawer-list">
-        <article
-          v-for="entry in drawerEntries"
-          :key="entry.key"
-          :data-drawer-entry-key="entry.key"
-          :class="['drawer-module-card', entry.tone, { dragging: homeCardDraggingKey === entry.key }]"
-        >
-          <button v-if="entry.type === 'single'" class="drawer-module-open" type="button" @click="openTab(entry.children[0].key)">
-            <component :is="entry.icon" :size="18" />
-            <div class="drawer-module-copy">
-              <div class="drawer-module-head">
-                <strong>{{ entry.label }}</strong>
-                <small>{{ entry.value }}</small>
-              </div>
-              <span>{{ entry.description }}</span>
-            </div>
-          </button>
-          <div v-else class="drawer-group-shell">
-            <div class="drawer-group-top">
-              <div class="drawer-group-head">
-                <span class="drawer-group-mark">
-                  <component :is="entry.icon" :size="18" />
-                </span>
-                <div class="drawer-module-copy">
-                  <div class="drawer-module-head">
-                    <strong>{{ entry.label }}</strong>
-                    <small>{{ entry.value }}</small>
-                  </div>
-                  <span>{{ entry.description }}</span>
-                </div>
-              </div>
-              <em class="drawer-group-hint">选择下面的入口</em>
-            </div>
-            <div class="drawer-group-children">
-              <button
-                v-for="child in entry.children"
-                :key="child.key"
-                class="drawer-child-button"
-                type="button"
-                @click="openTab(child.key)"
-              >
-                <span>{{ child.label }}</span>
-                <small>{{ child.value }}</small>
-              </button>
-            </div>
-          </div>
-          <button
-            class="home-module-grip"
-            type="button"
-            aria-label="拖动排序"
-            title="拖动排序"
-            @pointerdown="beginHomeCardDrag(entry.key, $event)"
-          >
-            <GripVertical :size="16" />
-          </button>
-        </article>
-      </div>
-    </aside>
 
     <p v-if="message" :class="['toast', `toast-${messageType}`]">{{ message }}</p>
 
@@ -4499,20 +4689,20 @@ watch(
 
       <div class="home-view-switch">
         <button
-          :class="['home-view-button', { active: homeViewMode === 'calendar' }]"
-          type="button"
-          @click="setHomeViewMode('calendar')"
-        >
-          <CalendarDays :size="16" />
-          <span>日历模式</span>
-        </button>
-        <button
           :class="['home-view-button', { active: homeViewMode === 'cards' }]"
           type="button"
           @click="setHomeViewMode('cards')"
         >
           <LayoutGrid :size="16" />
           <span>卡片模式</span>
+        </button>
+        <button
+          :class="['home-view-button', { active: homeViewMode === 'calendar' }]"
+          type="button"
+          @click="setHomeViewMode('calendar')"
+        >
+          <CalendarDays :size="16" />
+          <span>日历模式</span>
         </button>
       </div>
 
@@ -4615,49 +4805,74 @@ watch(
 
         <div class="home-module-grid">
           <template v-for="entry in drawerEntries" :key="`home-${entry.key}`">
-            <button
+            <article
               v-if="entry.type === 'single'"
-              class="home-entry-card"
-              type="button"
-              @click="openTab(entry.children[0].key)"
+              :data-drawer-entry-key="entry.key"
+              :class="['home-entry-shell', entry.tone, { dragging: homeCardDraggingKey === entry.key }]"
             >
-              <span class="home-entry-icon">
-                <component :is="entry.icon" :size="18" />
-              </span>
-              <div class="drawer-module-copy">
-                <div class="drawer-module-head">
-                  <strong>{{ entry.label }}</strong>
-                  <small>{{ entry.value }}</small>
-                </div>
-                <span>{{ entry.description }}</span>
-              </div>
-            </button>
-
-            <article v-else class="home-group-card">
-              <div class="home-group-toggle">
+              <button class="home-entry-card" type="button" @click="openTab(entry.children[0].key)">
                 <span class="home-entry-icon">
                   <component :is="entry.icon" :size="18" />
                 </span>
-                <div class="drawer-module-copy">
+                <div class="drawer-module-copy home-card-copy">
                   <div class="drawer-module-head">
                     <strong>{{ entry.label }}</strong>
                     <small>{{ entry.value }}</small>
                   </div>
                   <span>{{ entry.description }}</span>
                 </div>
+              </button>
+              <button
+                class="home-module-grip"
+                type="button"
+                aria-label="拖动排序"
+                title="拖动排序"
+                @pointerdown="beginHomeCardDrag(entry.key, $event)"
+              >
+                <GripVertical :size="16" />
+              </button>
+            </article>
+
+            <article
+              v-else
+              :data-drawer-entry-key="entry.key"
+              :class="['home-group-shell', entry.tone, { dragging: homeCardDraggingKey === entry.key }]"
+            >
+              <div class="home-group-card">
+                <div class="home-group-toggle">
+                  <span class="home-entry-icon">
+                    <component :is="entry.icon" :size="18" />
+                  </span>
+                  <div class="drawer-module-copy home-card-copy">
+                    <div class="drawer-module-head">
+                      <strong>{{ entry.label }}</strong>
+                      <small>{{ entry.value }}</small>
+                    </div>
+                    <span>{{ entry.description }}</span>
+                  </div>
+                </div>
+                <div class="home-subcard-grid">
+                  <button
+                    v-for="child in entry.children"
+                    :key="`${entry.key}-${child.key}`"
+                    class="drawer-child-button home-subcard-button"
+                    type="button"
+                    @click="openTab(child.key)"
+                  >
+                    <span>{{ child.label }}</span>
+                    <small>{{ child.value }}</small>
+                  </button>
+                </div>
               </div>
-              <div class="home-subcard-grid">
-                <button
-                  v-for="child in entry.children"
-                  :key="`${entry.key}-${child.key}`"
-                  class="drawer-child-button home-subcard-button"
-                  type="button"
-                  @click="openTab(child.key)"
-                >
-                  <span>{{ child.label }}</span>
-                  <small>{{ child.value }}</small>
-                </button>
-              </div>
+              <button
+                class="home-module-grip"
+                type="button"
+                aria-label="拖动排序"
+                title="拖动排序"
+                @pointerdown="beginHomeCardDrag(entry.key, $event)"
+              >
+                <GripVertical :size="16" />
+              </button>
             </article>
           </template>
         </div>
@@ -4834,7 +5049,7 @@ watch(
         <article class="list-card plant-dashboard-card">
           <div class="section-title">
             <div class="plant-dashboard-copy">
-              <h2>本月已照顾植物 {{ plantCareDaysThisMonth }} 天</h2>
+              <h2>本月养护天数 {{ plantCareDaysThisMonth }}/{{ plantCareMonthTotalDays }}</h2>
               <p>{{ plantOverviewSummary }}</p>
             </div>
             <button class="secondary-button compact-button plant-add-button" type="button" @click="startCreatePlant()">
@@ -4844,18 +5059,52 @@ watch(
           </div>
           <div class="summary-strip plant-summary-strip">
             <article class="mini-metric">
-              <span>花花数量</span>
-              <strong>{{ plants.length }}盆</strong>
-            </article>
-            <article class="mini-metric">
-              <span>本月照顾</span>
-              <strong>{{ plantCareDaysThisMonth }}天</strong>
-            </article>
-            <article class="mini-metric">
               <span>待养护</span>
               <strong>{{ pendingPlantCareReminders.length }}条</strong>
+              <small>{{ todayDuePlantSummary }}</small>
+            </article>
+            <article class="mini-metric">
+              <span>本月签到</span>
+              <strong>{{ plantCareDaysThisMonth }}/{{ plantCareMonthTotalDays }}</strong>
+              <small>{{ plantCareDaysThisMonth > 0 ? "每次签到都算一次照顾成功" : "今天开始给花花打卡吧" }}</small>
+            </article>
+            <article class="mini-metric">
+              <span>较上月</span>
+              <strong>{{ plantCareDelta > 0 ? `+${plantCareDelta}` : plantCareDelta }}</strong>
+              <small>{{ plantCareDeltaLabel }}</small>
             </article>
           </div>
+          <article class="plant-trend-card">
+            <div class="plant-trend-head">
+              <div class="plant-trend-copy">
+                <span>本月照顾趋势</span>
+                <strong>{{ plantCareDaysThisMonth }}/{{ plantCareMonthTotalDays }}</strong>
+                <small>{{ plantCareDeltaLabel }}</small>
+              </div>
+              <div class="plant-trend-compare">
+                <span>上月 {{ previousPlantCareDays }} 天</span>
+                <strong>本月 {{ plantCareDaysThisMonth }} 天</strong>
+              </div>
+            </div>
+            <div class="plant-trend-dots" :style="{ '--plant-trend-columns': Math.min(plantCareMonthTotalDays, 8) }">
+              <span
+                v-for="day in plantTrendDays"
+                :key="day.key"
+                :class="['plant-trend-dot', { active: day.active }]"
+                :title="`${day.label}日`"
+              />
+            </div>
+            <div class="plant-badge-row">
+              <span
+                v-for="badge in plantCareBadges"
+                :key="badge.key"
+                :class="['plant-badge-chip', { active: badge.active }]"
+              >
+                <Leaf :size="13" />
+                <span>{{ badge.label }}</span>
+              </span>
+            </div>
+          </article>
           <p v-if="plants.length === 0" class="empty">还没有花卉档案，先把第一盆花花放进来吧。</p>
         </article>
         <article
@@ -4882,6 +5131,13 @@ watch(
               <span v-if="text(plant, 'location')" class="plant-meta-chip location">{{ text(plant, "location") }}</span>
             </div>
             <small v-if="text(plant, 'care_preference')">{{ text(plant, "care_preference") }}</small>
+            <span
+              v-if="plantStatusTag(plant)"
+              :class="['plant-care-tag', `plant-care-tag-${plantStatusTag(plant)?.tone || 'due'}`]"
+            >
+              <component :is="plantStatusTag(plant)?.icon || Bell" :size="13" />
+              <span>{{ plantStatusTag(plant)?.text }}</span>
+            </span>
           </div>
           <div class="plant-side">
             <strong>{{ plantStatusLabel(text(plant, "status")) }}</strong>
@@ -4901,8 +5157,8 @@ watch(
             </div>
           </div>
           <button class="secondary-button compact-button plant-quick-button" type="button" @click.stop="startQuickCare(plant)">
-            <Sprout :size="16" />
-            <span>今日已养护</span>
+            <Check :size="16" />
+            <span>今日完成养护</span>
           </button>
         </article>
       </template>
@@ -5641,24 +5897,6 @@ watch(
     </section>
 
     <section v-if="activeTab === 'inventory'" class="view">
-      <div class="segmented-control">
-        <button
-          :class="['segment-button', { active: inventorySegment === 'items' }]"
-          type="button"
-          @click="inventorySegment = 'items'"
-        >
-          物资
-        </button>
-        <button
-          :class="['segment-button', { active: inventorySegment === 'votes' }]"
-          type="button"
-          @click="inventorySegment = 'votes'"
-        >
-          投票
-        </button>
-      </div>
-
-      <template v-if="inventorySegment === 'items'">
         <article v-if="inventoryView === 'list'" class="list-card">
           <div class="section-title">
             <h2>库存物资</h2>
@@ -5761,9 +5999,9 @@ watch(
             <span>更新物资</span>
           </button>
         </article>
-      </template>
+    </section>
 
-      <template v-else>
+    <section v-if="activeTab === 'votes'" class="view">
         <article v-if="voteView === 'list'" class="list-card">
           <div class="section-title">
             <h2>家庭投票</h2>
@@ -5842,7 +6080,6 @@ watch(
             <span>创建投票</span>
           </button>
         </article>
-      </template>
     </section>
 
     <section v-if="activeTab === 'recipes'" class="view">
@@ -6621,8 +6858,8 @@ watch(
     <section v-if="quickCareOpen" class="quick-care-sheet">
       <div class="section-title">
         <div>
-          <p class="eyebrow">一键标记</p>
-          <h2>{{ text(quickCarePlant ?? {}, "name") || "今日已养护" }}</h2>
+          <p class="eyebrow">养护签到</p>
+          <h2>{{ text(quickCarePlant ?? {}, "name") || "今日完成养护" }}</h2>
         </div>
         <button class="icon-button" type="button" aria-label="关闭快捷养护" title="关闭快捷养护" @click="quickCareOpen = false">
           <ArrowLeft :size="18" />
@@ -6643,18 +6880,18 @@ watch(
           <input v-model="quickCareDraft.nextCareAt" type="datetime-local" />
         </div>
       </div>
-      <textarea v-model="quickCareDraft.detail" rows="3" placeholder="写下今天做了什么，植物现在状态如何" />
+      <textarea v-model="quickCareDraft.detail" rows="3" placeholder="可选：补充今天做了什么，或者直接签到完成" />
       <button class="secondary-button" :disabled="isSubmitting(`care-quick-${quickCareDraft.plantId}`)" type="button" @click="submitQuickCareRecord">
         <LoaderCircle v-if="isSubmitting(`care-quick-${quickCareDraft.plantId}`)" class="spin" :size="17" />
-        <Sprout v-else :size="17" />
-        <span>完成今日养护</span>
+        <Check v-else :size="17" />
+        <span>签到并完成</span>
       </button>
     </section>
     <transition name="achievement-pop">
       <div v-if="plantAchievementVisible" :key="plantAchievementKey" class="plant-achievement-pop">
         <Leaf :size="18" />
-        <strong>守护天数 +1</strong>
-        <span>今天也把花花照顾得很好</span>
+        <strong>{{ plantAchievementTitle }}</strong>
+        <span>{{ plantAchievementSubtitle }}</span>
       </div>
     </transition>
     <div

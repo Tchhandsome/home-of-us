@@ -106,9 +106,29 @@ class FamilyServiceTest {
 
         assertEquals("pets", cardOrder.get(0));
         assertEquals("profile", cardOrder.get(1));
-        assertEquals(14, cardOrder.size());
+        assertEquals(15, cardOrder.size());
         assertEquals("todo", cardOrder.get(2));
+        assertEquals("votes", cardOrder.get(11));
         assertEquals("cards", homeViewModeObject);
+    }
+
+    @Test
+    void shouldDefaultHomeViewModeToCards() {
+        CurrentUser currentUser = new CurrentUser(9001L, DefaultFamily.FAMILY_ID, 1001L, "xiaotan", "小谭");
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(currentUser);
+        when(familyRepository.findFamily(DefaultFamily.FAMILY_ID)).thenReturn(Map.of("id", DefaultFamily.FAMILY_ID));
+        when(familyRepository.findMembers(DefaultFamily.FAMILY_ID)).thenReturn(List.of(Map.of("id", 1001L)));
+        when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "homeCardOrder"))
+                .thenReturn(Optional.empty());
+        when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "homeViewMode"))
+                .thenReturn(Optional.empty());
+
+        Map<String, Object> overview = familyService.getDefaultFamilyOverview();
+        Object preferencesObject = overview.get("preferences");
+        Map<?, ?> preferences = assertInstanceOf(Map.class, preferencesObject);
+
+        assertEquals("cards", preferences.get("homeViewMode"));
     }
 
     @Test
