@@ -1,5 +1,6 @@
 package com.homeofus.chore.dto;
 
+import java.util.List;
 import javax.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
@@ -19,6 +20,8 @@ public class CreateChoreTaskRequest {
     private String taskScope;
 
     private Long assigneeId;
+
+    private List<Long> assigneeIds;
 
     private String taskType;
 

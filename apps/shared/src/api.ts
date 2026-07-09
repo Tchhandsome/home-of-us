@@ -105,7 +105,10 @@ export type CreatePrivateMessagePayload = {
   content: string;
   visibility?: string;
   receiverMemberId?: number;
+  messageDate?: string;
 };
+
+export type UpdatePrivateMessagePayload = CreatePrivateMessagePayload;
 
 export type CreateAlbumPhotoPayload = {
   title: string;
@@ -124,6 +127,7 @@ export type CreateTodoPayload = {
   title: string;
   taskScope?: string;
   assigneeId?: number;
+  assigneeIds?: number[];
   taskType?: string;
   cycleRule?: string;
   note?: string;
@@ -204,6 +208,21 @@ export type CreatePetMedicalRecordPayload = {
   medicine?: string;
   description: string;
   nextDueAt?: string;
+};
+
+export type SavePeriodProfilePayload = {
+  cycleDays?: number;
+  periodDays?: number;
+  lastPeriodStart?: string;
+  reminderEnabled?: boolean;
+  reminderTime?: string;
+  note?: string;
+};
+
+export type CreatePeriodRecordPayload = {
+  startOn: string;
+  endOn?: string;
+  note?: string;
 };
 
 export type UpdatePetPayload = {
@@ -425,9 +444,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  updatePrivateMessage: (id: number, payload: UpdatePrivateMessagePayload) =>
+    request<AnyRow>(`/private-messages/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
   readPrivateMessage: (id: number) =>
     request<AnyRow>(`/private-messages/${id}/read`, {
       method: "PATCH"
+    }),
+  periodMine: () => request<AnyRow>("/periods/me"),
+  savePeriodProfile: (payload: SavePeriodProfilePayload) =>
+    request<AnyRow>("/periods/me/profile", {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
+  createPeriodRecord: (payload: CreatePeriodRecordPayload) =>
+    request<AnyRow>("/periods/me/records", {
+      method: "POST",
+      body: JSON.stringify(payload)
     }),
   albumPhotos: () => request<AnyRow[]>("/album/photos"),
   updateAlbumPhoto: (id: number, payload: UpdateAlbumPhotoPayload) =>

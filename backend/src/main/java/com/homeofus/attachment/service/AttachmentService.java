@@ -7,6 +7,11 @@ import com.homeofus.common.jdbc.IdGenerator;
 import com.homeofus.common.time.TimeProvider;
 import com.homeofus.common.web.CurrentUser;
 import com.homeofus.common.web.CurrentUserProvider;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +21,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -28,6 +38,10 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @Service
 public class AttachmentService {
+
+    private static final int MAX_IMAGE_EDGE = 1600;
+
+    private static final float JPEG_QUALITY = 0.82f;
 
     private final AttachmentRepository attachmentRepository;
 
@@ -75,13 +89,20 @@ public class AttachmentService {
         }
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         String monthFolder = timeProvider.today().format(DateTimeFormatter.ofPattern("yyyyMM"));
-        String extension = resolveExtension(file.getOriginalFilename(), contentType);
+        ProcessedImage processedImage = processImage(file, contentType);
+        String extension = Objects.nonNull(processedImage) ? processedImage.getExtension()
+                : resolveExtension(file.getOriginalFilename(), contentType);
         String storedName = UUID.randomUUID().toString().replace("-", "") + extension;
         Path folder = Path.of(uploadRootDir, monthFolder);
         Path target = folder.resolve(storedName);
         try {
             Files.createDirectories(folder);
-            file.transferTo(target);
+            if (Objects.nonNull(processedImage)) {
+                Files.write(target, processedImage.getBytes());
+                contentType = processedImage.getContentType();
+            } else {
+                file.transferTo(target);
+            }
         } catch (IOException exception) {
             throw new BusinessException("ATTACHMENT_UPLOAD_FAILED", "attachment.upload.failed");
         }
@@ -95,8 +116,68 @@ public class AttachmentService {
         result.put("url", url);
         result.put("fileName", fileName);
         result.put("contentType", contentType);
-        result.put("size", file.getSize());
+        result.put("size", Objects.nonNull(processedImage) ? processedImage.getBytes().length : file.getSize());
         return result;
+    }
+
+    private ProcessedImage processImage(MultipartFile file, String contentType) {
+        try {
+            byte[] rawBytes = file.getBytes();
+            BufferedImage source = ImageIO.read(new ByteArrayInputStream(rawBytes));
+            if (Objects.isNull(source)) {
+                return null;
+            }
+            boolean keepPng = StringUtils.equalsIgnoreCase(contentType, "image/png")
+                    || source.getColorModel().hasAlpha();
+            int width = source.getWidth();
+            int height = source.getHeight();
+            double ratio = Math.min(1D, (double) MAX_IMAGE_EDGE / Math.max(width, height));
+            int targetWidth = Math.max(1, (int) Math.round(width * ratio));
+            int targetHeight = Math.max(1, (int) Math.round(height * ratio));
+            int imageType = keepPng ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+            BufferedImage scaled = new BufferedImage(targetWidth, targetHeight, imageType);
+            Graphics2D graphics = scaled.createGraphics();
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (!keepPng) {
+                graphics.setBackground(java.awt.Color.WHITE);
+                graphics.clearRect(0, 0, targetWidth, targetHeight);
+            }
+            graphics.drawImage(source, 0, 0, targetWidth, targetHeight, null);
+            graphics.dispose();
+            return keepPng ? writePng(scaled) : writeJpeg(scaled);
+        } catch (IOException exception) {
+            return null;
+        }
+    }
+
+    private ProcessedImage writePng(BufferedImage image) throws IOException {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", outputStream);
+        return new ProcessedImage(outputStream.toByteArray(), ".png", "image/png");
+    }
+
+    private ProcessedImage writeJpeg(BufferedImage image) throws IOException {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").hasNext()
+                ? ImageIO.getImageWritersByFormatName("jpg").next()
+                : null;
+        if (Objects.isNull(writer)) {
+            return null;
+        }
+        try (ImageOutputStream imageOutputStream = ImageIO.createImageOutputStream(outputStream)) {
+            writer.setOutput(imageOutputStream);
+            ImageWriteParam writeParam = writer.getDefaultWriteParam();
+            if (writeParam.canWriteCompressed()) {
+                writeParam.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                writeParam.setCompressionQuality(JPEG_QUALITY);
+            }
+            writer.write(null, new IIOImage(image, null, null), writeParam);
+        } finally {
+            writer.dispose();
+        }
+        return new ProcessedImage(outputStream.toByteArray(), ".jpg", "image/jpeg");
     }
 
     private String resolveExtension(String originalFileName, String contentType) {
@@ -115,5 +196,37 @@ public class AttachmentService {
             return ".webp";
         }
         return ".jpg";
+    }
+
+    /**
+     * 处理后的图片结果。
+     *
+     * @author tanchaohong
+     */
+    private static final class ProcessedImage {
+
+        private final byte[] bytes;
+
+        private final String extension;
+
+        private final String contentType;
+
+        private ProcessedImage(byte[] bytes, String extension, String contentType) {
+            this.bytes = bytes;
+            this.extension = extension;
+            this.contentType = contentType;
+        }
+
+        private byte[] getBytes() {
+            return bytes;
+        }
+
+        private String getExtension() {
+            return extension;
+        }
+
+        private String getContentType() {
+            return contentType;
+        }
     }
 }

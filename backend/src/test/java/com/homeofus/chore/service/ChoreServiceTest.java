@@ -63,14 +63,18 @@ class ChoreServiceTest {
         request.setTaskScope("PERSONAL");
 
         when(currentUserProvider.getCurrentUser()).thenReturn(currentUser);
-        when(idGenerator.nextId()).thenReturn(8001L);
+        when(idGenerator.nextId()).thenReturn(8001L, 8002L);
         when(timeProvider.now()).thenReturn(now);
+        when(choreRepository.restoreAssignee(DefaultFamily.FAMILY_ID, 8001L, 1001L, 9001L, now)).thenReturn(0);
 
         Map<String, Object> result = choreService.create(request);
 
         assertEquals(8001L, result.get("id"));
         verify(choreRepository).insert(8001L, DefaultFamily.FAMILY_ID, request, "PERSONAL", 1001L, 1001L,
                 "TEMPORARY", null, 9001L, now);
+        verify(choreRepository).clearAssignees(DefaultFamily.FAMILY_ID, 8001L, 9001L, now);
+        verify(choreRepository).insertAssignee(8002L, DefaultFamily.FAMILY_ID, 8001L, 1001L, 9001L, now);
+        verify(choreRepository).setPrimaryAssignee(DefaultFamily.FAMILY_ID, 8001L, 1001L, 9001L, now);
         verify(reminderService).deleteBySource("TODO_TASK", 8001L);
         verify(reminderService, never()).createFromSource(eq("缴纳物业费"), eq("家庭待办"), eq("TODO_TASK"), eq(8001L),
                 eq(now));
@@ -82,14 +86,17 @@ class ChoreServiceTest {
         LocalDateTime now = LocalDateTime.of(2026, 7, 9, 10, 30);
 
         when(currentUserProvider.getCurrentUser()).thenReturn(currentUser);
+        when(idGenerator.nextId()).thenReturn(8102L);
         when(timeProvider.now()).thenReturn(now);
         when(choreRepository.findTask(DefaultFamily.FAMILY_ID, 8101L))
                 .thenReturn(Optional.of(Map.of("id", 8101L, "task_scope", "SHARED")));
+        when(choreRepository.restoreAssignee(DefaultFamily.FAMILY_ID, 8101L, 1002L, 9002L, now)).thenReturn(0);
         when(choreRepository.claim(DefaultFamily.FAMILY_ID, 8101L, 1002L, 9002L, now)).thenReturn(1);
 
         Map<String, Object> result = choreService.claim(8101L);
 
         assertEquals(1, result.get("updated"));
+        verify(choreRepository).insertAssignee(8102L, DefaultFamily.FAMILY_ID, 8101L, 1002L, 9002L, now);
         verify(choreRepository).claim(DefaultFamily.FAMILY_ID, 8101L, 1002L, 9002L, now);
     }
 
@@ -113,6 +120,8 @@ class ChoreServiceTest {
         Map<String, Object> result = choreService.update(8201L, request);
 
         assertEquals(1, result.get("updated"));
+        verify(choreRepository).clearAssignees(DefaultFamily.FAMILY_ID, 8201L, 9001L, now);
+        verify(choreRepository).setPrimaryAssignee(DefaultFamily.FAMILY_ID, 8201L, null, 9001L, now);
         verify(reminderService).deleteBySource("TODO_TASK", 8201L);
         verify(reminderService, never()).createFromSource("周末大扫除", "周六上午一起做", "TODO_TASK", 8201L,
                 LocalDateTime.of(2026, 7, 12, 9, 0));
@@ -127,6 +136,7 @@ class ChoreServiceTest {
         when(timeProvider.now()).thenReturn(now);
         when(choreRepository.findTask(DefaultFamily.FAMILY_ID, 8301L))
                 .thenReturn(Optional.of(Map.of("id", 8301L, "task_scope", "SHARED")));
+        when(choreRepository.restoreAssignee(DefaultFamily.FAMILY_ID, 8301L, 1002L, 9002L, now)).thenReturn(1);
         when(choreRepository.complete(DefaultFamily.FAMILY_ID, 8301L, 1002L, 9002L, now)).thenReturn(1);
 
         Map<String, Object> result = choreService.complete(8301L);

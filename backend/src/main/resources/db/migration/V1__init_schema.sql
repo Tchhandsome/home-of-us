@@ -137,6 +137,21 @@ CREATE TABLE IF NOT EXISTS chore_task (
     INDEX idx_chore_family_status (family_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+CREATE TABLE IF NOT EXISTS chore_task_assignee (
+    id BIGINT PRIMARY KEY,
+    family_id BIGINT NOT NULL,
+    task_id BIGINT NOT NULL,
+    member_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    created_by BIGINT NULL,
+    updated_by BIGINT NULL,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_chore_task_assignee_task_member (task_id, member_id),
+    INDEX idx_chore_task_assignee_family_member (family_id, member_id),
+    INDEX idx_chore_task_assignee_task (task_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 CREATE TABLE IF NOT EXISTS shopping_item (
     id BIGINT PRIMARY KEY,
     family_id BIGINT NOT NULL,
@@ -218,6 +233,7 @@ CREATE TABLE IF NOT EXISTS private_message (
     receiver_member_id BIGINT NULL,
     visibility VARCHAR(30) NOT NULL,
     content TEXT NOT NULL,
+    message_date DATE NULL,
     read_at DATETIME NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
@@ -227,6 +243,42 @@ CREATE TABLE IF NOT EXISTS private_message (
     INDEX idx_private_message_family_created (family_id, created_at),
     INDEX idx_private_message_receiver (receiver_member_id),
     INDEX idx_private_message_sender (sender_member_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS period_profile (
+    id BIGINT PRIMARY KEY,
+    family_id BIGINT NOT NULL,
+    member_id BIGINT NOT NULL,
+    cycle_days INT NOT NULL DEFAULT 28,
+    period_days INT NOT NULL DEFAULT 5,
+    last_period_start DATE NULL,
+    reminder_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    reminder_time VARCHAR(10) NULL,
+    note VARCHAR(500) NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    created_by BIGINT NULL,
+    updated_by BIGINT NULL,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_period_profile_member (member_id),
+    INDEX idx_period_profile_family_member (family_id, member_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS period_record (
+    id BIGINT PRIMARY KEY,
+    family_id BIGINT NOT NULL,
+    member_id BIGINT NOT NULL,
+    start_on DATE NOT NULL,
+    end_on DATE NULL,
+    is_predicted TINYINT(1) NOT NULL DEFAULT 0,
+    note VARCHAR(500) NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    created_by BIGINT NULL,
+    updated_by BIGINT NULL,
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    INDEX idx_period_record_member_start (member_id, start_on),
+    INDEX idx_period_record_family_start (family_id, start_on)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS album_photo (

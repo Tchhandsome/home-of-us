@@ -2,6 +2,7 @@ package com.homeofus.privatezone.controller;
 
 import com.homeofus.common.api.ApiResponse;
 import com.homeofus.privatezone.dto.CreatePrivateMessageRequest;
+import com.homeofus.privatezone.dto.UpdatePrivateMessageRequest;
 import com.homeofus.privatezone.service.PrivateMessageService;
 import java.util.List;
 import java.util.Map;
@@ -59,5 +60,18 @@ public class PrivateMessageController {
     @PatchMapping("/{id}/read")
     public ApiResponse<Map<String, Object>> markRead(@PathVariable Long id) {
         return ApiResponse.ok(privateMessageService.markRead(id));
+    }
+
+    /**
+     * 更新留言。
+     *
+     * @param id 留言 ID
+     * @param request 更新请求
+     * @return 更新结果
+     */
+    @PatchMapping("/{id}")
+    public ApiResponse<Map<String, Object>> update(@PathVariable Long id,
+            @Valid @RequestBody UpdatePrivateMessageRequest request) {
+        return ApiResponse.ok(privateMessageService.update(id, request));
     }
 }

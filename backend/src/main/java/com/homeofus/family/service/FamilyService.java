@@ -35,7 +35,8 @@ public class FamilyService {
     private static final String HOME_CARD_ORDER_KEY = "homeCardOrder";
 
     private static final List<String> DEFAULT_HOME_CARD_ORDER = List.of("todo", "plants", "care", "shopping",
-            "finance", "reminders", "members", "album", "pets", "inventory", "recipes", "private", "profile");
+            "finance", "reminders", "period", "members", "album", "pets", "inventory", "recipes", "private",
+            "profile");
 
     private final FamilyRepository familyRepository;
 

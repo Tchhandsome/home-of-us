@@ -7,7 +7,10 @@ import com.homeofus.common.time.TimeProvider;
 import com.homeofus.common.web.CurrentUser;
 import com.homeofus.common.web.CurrentUserProvider;
 import com.homeofus.privatezone.dto.CreatePrivateMessageRequest;
+import com.homeofus.privatezone.dto.UpdatePrivateMessageRequest;
 import com.homeofus.privatezone.repository.PrivateMessageRepository;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -62,7 +65,8 @@ public class PrivateMessageService {
         }
         Long id = idGenerator.nextId();
         privateMessageRepository.insert(id, DefaultFamily.FAMILY_ID, currentUser.getMemberId(), receiverMemberId,
-                visibility, request.getContent(), currentUser.getUserId(), timeProvider.now());
+                visibility, request.getContent(), parseDate(request.getMessageDate()), currentUser.getUserId(),
+                timeProvider.now());
         return Map.of("id", id);
     }
 
@@ -74,6 +78,36 @@ public class PrivateMessageService {
     public List<Map<String, Object>> findVisibleMessages() {
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         return privateMessageRepository.findVisibleMessages(DefaultFamily.FAMILY_ID, currentUser.getMemberId());
+    }
+
+    /**
+     * 更新留言。
+     *
+     * @param id 留言 ID
+     * @param request 更新请求
+     * @return 更新结果
+     */
+    public Map<String, Object> update(Long id, UpdatePrivateMessageRequest request) {
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        Map<String, Object> message = privateMessageRepository.findMessage(id, DefaultFamily.FAMILY_ID)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new BusinessException("PRIVATE_MESSAGE_NOT_FOUND", "privateMessage.notFound"));
+        Long senderMemberId = numberValue(message, "sender_member_id");
+        if (!Objects.equals(senderMemberId, currentUser.getMemberId())) {
+            throw new BusinessException("PRIVATE_MESSAGE_FORBIDDEN", "privateMessage.forbidden");
+        }
+        String visibility = normalizeVisibility(request.getVisibility());
+        Long receiverMemberId = request.getReceiverMemberId();
+        if (VISIBILITY_TO_PARTNER.equals(visibility) && Objects.isNull(receiverMemberId)) {
+            throw new BusinessException("PRIVATE_MESSAGE_RECEIVER_REQUIRED", "privateMessage.receiver.required");
+        }
+        if (VISIBILITY_PRIVATE.equals(visibility)) {
+            receiverMemberId = null;
+        }
+        int updated = privateMessageRepository.update(id, DefaultFamily.FAMILY_ID, receiverMemberId, visibility,
+                request.getContent(), parseDate(request.getMessageDate()), currentUser.getUserId(), timeProvider.now());
+        return Map.of("updated", updated);
     }
 
     /**
@@ -96,5 +130,24 @@ public class PrivateMessageService {
             return safeVisibility;
         }
         return VISIBILITY_PRIVATE;
+    }
+
+    private LocalDate parseDate(String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException exception) {
+            return timeProvider.today();
+        }
+    }
+
+    private Long numberValue(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        return null;
     }
 }

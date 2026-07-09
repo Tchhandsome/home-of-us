@@ -57,14 +57,23 @@ public class ChoreRepository {
         return jdbcTemplate.queryForList(
                 "SELECT task.id, task.family_id, task.title, task.task_scope, task.owner_member_id, "
                         + "task.assignee_id, owner.display_name AS owner_name, assignee.display_name AS assignee_name, "
+                        + "COALESCE(assignee_group.assignee_ids, '') AS assignee_ids, "
+                        + "COALESCE(assignee_group.assignee_names, '') AS assignee_names, "
                         + "task.task_type, task.cycle_rule, task.note, task.status, task.due_at, task.completed_at, "
                         + "task.created_at FROM chore_task task "
                         + "LEFT JOIN family_member owner ON owner.id = task.owner_member_id AND owner.deleted = 0 "
                         + "LEFT JOIN family_member assignee ON assignee.id = task.assignee_id AND assignee.deleted = 0 "
+                        + "LEFT JOIN (SELECT relation.task_id, "
+                        + "GROUP_CONCAT(relation.member_id ORDER BY relation.created_at SEPARATOR ',') AS assignee_ids, "
+                        + "GROUP_CONCAT(member.display_name ORDER BY relation.created_at SEPARATOR '、') AS assignee_names "
+                        + "FROM chore_task_assignee relation "
+                        + "LEFT JOIN family_member member ON member.id = relation.member_id AND member.deleted = 0 "
+                        + "WHERE relation.family_id = ? AND relation.deleted = 0 GROUP BY relation.task_id) assignee_group "
+                        + "ON assignee_group.task_id = task.id "
                         + "WHERE task.family_id = ? AND task.deleted = 0 "
                         + "ORDER BY CASE WHEN task.status = 'TODO' THEN 0 ELSE 1 END ASC, "
                         + "COALESCE(task.due_at, task.created_at) ASC, task.created_at DESC",
-                familyId);
+                familyId, familyId);
     }
 
     /**
@@ -110,6 +119,73 @@ public class ChoreRepository {
     }
 
     /**
+     * 清空待办认领成员。
+     *
+     * @param familyId 家庭 ID
+     * @param taskId 任务 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     */
+    public void clearAssignees(Long familyId, Long taskId, Long operatorId, LocalDateTime now) {
+        jdbcTemplate.update(
+                "UPDATE chore_task_assignee SET deleted = 1, updated_at = ?, updated_by = ? "
+                        + "WHERE family_id = ? AND task_id = ? AND deleted = 0",
+                now, operatorId, familyId, taskId);
+    }
+
+    /**
+     * 恢复已存在的认领成员关系。
+     *
+     * @param familyId 家庭 ID
+     * @param taskId 任务 ID
+     * @param memberId 成员 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int restoreAssignee(Long familyId, Long taskId, Long memberId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE chore_task_assignee SET deleted = 0, updated_at = ?, updated_by = ? "
+                        + "WHERE family_id = ? AND task_id = ? AND member_id = ?",
+                now, operatorId, familyId, taskId, memberId);
+    }
+
+    /**
+     * 新增认领成员关系。
+     *
+     * @param id 主键
+     * @param familyId 家庭 ID
+     * @param taskId 任务 ID
+     * @param memberId 成员 ID
+     * @param operatorId 操作人
+     * @param now 当前时间
+     */
+    public void insertAssignee(Long id, Long familyId, Long taskId, Long memberId, Long operatorId,
+            LocalDateTime now) {
+        jdbcTemplate.update(
+                "INSERT INTO chore_task_assignee (id, family_id, task_id, member_id, created_at, updated_at, "
+                        + "created_by, updated_by, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                id, familyId, taskId, memberId, now, now, operatorId, operatorId);
+    }
+
+    /**
+     * 设置待办主认领人。
+     *
+     * @param familyId 家庭 ID
+     * @param taskId 任务 ID
+     * @param assigneeId 主认领人
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int setPrimaryAssignee(Long familyId, Long taskId, Long assigneeId, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE chore_task SET assignee_id = ?, updated_at = ?, updated_by = ? "
+                        + "WHERE id = ? AND family_id = ? AND deleted = 0",
+                assigneeId, now, operatorId, taskId, familyId);
+    }
+
+    /**
      * 认领待办任务。
      *
      * @param familyId 家庭 ID
@@ -122,7 +198,7 @@ public class ChoreRepository {
     public int claim(Long familyId, Long taskId, Long assigneeId, Long operatorId, LocalDateTime now) {
         return jdbcTemplate.update(
                 "UPDATE chore_task SET assignee_id = ?, updated_at = ?, updated_by = ? "
-                        + "WHERE id = ? AND family_id = ? AND deleted = 0",
+                        + "WHERE id = ? AND family_id = ? AND deleted = 0 AND assignee_id IS NULL",
                 assigneeId, now, operatorId, taskId, familyId);
     }
 

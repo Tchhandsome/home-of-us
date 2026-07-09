@@ -1,5 +1,6 @@
 package com.homeofus.privatezone.repository;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -29,16 +30,17 @@ public class PrivateMessageRepository {
      * @param receiverMemberId 接收成员 ID
      * @param visibility 可见范围
      * @param content 内容
+     * @param messageDate 留言日期
      * @param operatorId 操作人
      * @param now 当前时间
      */
     public void insert(Long id, Long familyId, Long senderMemberId, Long receiverMemberId, String visibility,
-            String content, Long operatorId, LocalDateTime now) {
+            String content, LocalDate messageDate, Long operatorId, LocalDateTime now) {
         jdbcTemplate.update(
                 "INSERT INTO private_message (id, family_id, sender_member_id, receiver_member_id, visibility, "
-                        + "content, read_at, created_at, updated_at, created_by, updated_by, deleted) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 0)",
-                id, familyId, senderMemberId, receiverMemberId, visibility, content, now, now, operatorId,
+                        + "content, message_date, read_at, created_at, updated_at, created_by, updated_by, deleted) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 0)",
+                id, familyId, senderMemberId, receiverMemberId, visibility, content, messageDate, now, now, operatorId,
                 operatorId);
     }
 
@@ -51,11 +53,47 @@ public class PrivateMessageRepository {
      */
     public List<Map<String, Object>> findVisibleMessages(Long familyId, Long memberId) {
         return jdbcTemplate.queryForList(
-                "SELECT id, family_id, sender_member_id, receiver_member_id, visibility, content, read_at, created_at "
+                "SELECT id, family_id, sender_member_id, receiver_member_id, visibility, content, message_date, "
+                        + "read_at, created_at "
                         + "FROM private_message WHERE family_id = ? AND deleted = 0 AND "
                         + "(visibility = 'SHARED' OR sender_member_id = ? OR receiver_member_id = ?) "
-                        + "ORDER BY created_at DESC",
+                        + "ORDER BY COALESCE(message_date, DATE(created_at)) DESC, created_at DESC",
                 familyId, memberId, memberId);
+    }
+
+    /**
+     * 查询单条留言。
+     *
+     * @param id 留言 ID
+     * @param familyId 家庭 ID
+     * @return 留言列表
+     */
+    public List<Map<String, Object>> findMessage(Long id, Long familyId) {
+        return jdbcTemplate.queryForList(
+                "SELECT id, family_id, sender_member_id, receiver_member_id, visibility, content, message_date, read_at "
+                        + "FROM private_message WHERE id = ? AND family_id = ? AND deleted = 0",
+                id, familyId);
+    }
+
+    /**
+     * 更新留言。
+     *
+     * @param id 留言 ID
+     * @param familyId 家庭 ID
+     * @param receiverMemberId 接收成员 ID
+     * @param visibility 可见范围
+     * @param content 内容
+     * @param messageDate 留言日期
+     * @param operatorId 操作人
+     * @param now 当前时间
+     * @return 更新行数
+     */
+    public int update(Long id, Long familyId, Long receiverMemberId, String visibility, String content,
+            LocalDate messageDate, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE private_message SET receiver_member_id = ?, visibility = ?, content = ?, message_date = ?, "
+                        + "updated_at = ?, updated_by = ? WHERE id = ? AND family_id = ? AND deleted = 0",
+                receiverMemberId, visibility, content, messageDate, now, operatorId, id, familyId);
     }
 
     /**

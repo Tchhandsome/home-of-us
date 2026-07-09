@@ -5,13 +5,13 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * 创建私密留言请求。
+ * 更新私密留言请求。
  *
  * @author tanchaohong
  */
 @Getter
 @Setter
-public class CreatePrivateMessageRequest {
+public class UpdatePrivateMessageRequest {
 
     @NotBlank(message = "privateMessage.content.required")
     private String content;

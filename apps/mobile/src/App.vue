@@ -16,6 +16,7 @@ import {
   ChefHat,
   Check,
   ClipboardList,
+  Droplets,
   Eye,
   EyeOff,
   GripVertical,
@@ -25,6 +26,7 @@ import {
   Lock,
   LogOut,
   LoaderCircle,
+  Menu,
   MessageSquare,
   Package,
   PawPrint,
@@ -48,6 +50,7 @@ type TabKey =
   | "shopping"
   | "finance"
   | "reminders"
+  | "period"
   | "private"
   | "members"
   | "memberAdd"
@@ -66,6 +69,7 @@ type HomeCardKey =
   | "shopping"
   | "finance"
   | "reminders"
+  | "period"
   | "private"
   | "members"
   | "album"
@@ -81,11 +85,25 @@ type CareViewKey = "list" | "create";
 type TodoViewKey = "list" | "create" | "edit";
 type TodoFilterKey = "all" | "mine" | "shared" | "done";
 type MemoryViewKey = "list" | "create" | "edit";
+type FinanceViewKey = "list" | "create";
+type PrivateViewKey = "list" | "create" | "edit";
+type PeriodViewKey = "list" | "profile" | "record";
 type InventoryViewKey = "list" | "create" | "edit";
 type InventorySegmentKey = "items" | "votes";
 type VoteViewKey = "list" | "create";
 type RecipeViewKey = "list" | "create" | "edit" | "week" | "mealPlanCreate";
 type ShoppingViewKey = "list" | "create";
+type CalendarEventType = "todo" | "reminder" | "care" | "memory" | "period";
+type CalendarEvent = {
+  id: string;
+  date: string;
+  type: CalendarEventType;
+  label: string;
+  title: string;
+  detail: string;
+  tone: string;
+  tab: TabKey;
+};
 type HomeCardDefinition = {
   key: HomeCardKey;
   label: string;
@@ -102,6 +120,7 @@ const defaultHomeCardOrder: HomeCardKey[] = [
   "shopping",
   "finance",
   "reminders",
+  "period",
   "members",
   "album",
   "pets",
@@ -112,6 +131,7 @@ const defaultHomeCardOrder: HomeCardKey[] = [
 ];
 
 const activeTab = ref<TabKey>("today");
+const drawerOpen = ref(false);
 const loading = ref(false);
 const isAuthenticated = ref(false);
 const message = ref("");
@@ -139,6 +159,20 @@ const financeOverview = ref<AnyRow>({
   weekExpense: 0
 });
 const careRecords = ref<AnyRow[]>([]);
+const allCareRecords = ref<AnyRow[]>([]);
+const periodSummary = ref<AnyRow>({
+  profile: {
+    cycle_days: 28,
+    period_days: 5,
+    last_period_start: "",
+    reminder_enabled: true,
+    reminder_time: "09:00",
+    note: "",
+    has_profile: false
+  },
+  records: [],
+  prediction: {}
+});
 const privateMessages = ref<AnyRow[]>([]);
 const albumPhotos = ref<AnyRow[]>([]);
 const inventoryItems = ref<AnyRow[]>([]);
@@ -156,6 +190,9 @@ const plantView = ref<PlantViewKey>("list");
 const careView = ref<CareViewKey>("list");
 const todoView = ref<TodoViewKey>("list");
 const todoFilter = ref<TodoFilterKey>("all");
+const financeView = ref<FinanceViewKey>("list");
+const privateView = ref<PrivateViewKey>("list");
+const periodView = ref<PeriodViewKey>("list");
 const memoryView = ref<MemoryViewKey>("list");
 const inventoryView = ref<InventoryViewKey>("list");
 const inventorySegment = ref<InventorySegmentKey>("items");
@@ -169,8 +206,10 @@ const actionKey = ref("");
 const selectedTodoId = ref("");
 const selectedPlantId = ref("");
 const selectedMemoryId = ref("");
+const selectedCalendarDate = ref(getTodayDateValue());
 const selectedInventoryId = ref("");
 const selectedRecipeId = ref("");
+const visibleMonth = ref(getMonthStartValue());
 const mealPlanWeekStart = ref(getWeekStartValue());
 const rememberLogin = ref(getRememberedLogin());
 const loginDraft = ref({
@@ -217,6 +256,10 @@ const financeDraft = ref({
   category: "MEAL",
   occurredOn: ""
 });
+const calendarTodoDraft = ref({
+  title: "",
+  time: "18:00"
+});
 const reminderDraft = ref({
   title: "",
   dueAt: "",
@@ -224,8 +267,9 @@ const reminderDraft = ref({
 });
 const todoDraft = ref({
   title: "",
-  taskScope: "SHARED",
+  taskScope: "PERSONAL",
   assigneeId: "",
+  assigneeIds: [] as string[],
   taskType: "TEMPORARY",
   cycleRule: "",
   note: "",
@@ -236,6 +280,7 @@ const todoEditDraft = ref({
   title: "",
   taskScope: "PERSONAL",
   assigneeId: "",
+  assigneeIds: [] as string[],
   taskType: "TEMPORARY",
   cycleRule: "",
   note: "",
@@ -278,7 +323,15 @@ const profilePasswordHintVisible = ref(false);
 const privateDraft = ref({
   content: "",
   visibility: "TO_PARTNER",
-  receiverMemberId: ""
+  receiverMemberId: "",
+  messageDate: getTodayDateValue()
+});
+const privateEditDraft = ref({
+  id: "",
+  content: "",
+  visibility: "TO_PARTNER",
+  receiverMemberId: "",
+  messageDate: getTodayDateValue()
 });
 const albumDraft = ref({
   title: "",
@@ -389,8 +442,22 @@ const petMedicalDraft = ref({
   description: "",
   nextDueAt: ""
 });
+const periodProfileDraft = ref({
+  cycleDays: "28",
+  periodDays: "5",
+  lastPeriodStart: "",
+  reminderEnabled: true,
+  reminderTime: "09:00",
+  note: ""
+});
+const periodRecordDraft = ref({
+  startOn: getTodayDateValue(),
+  endOn: "",
+  note: ""
+});
 
 const roleOptions = ["主人", "女主人", "男主人", "伴侣", "家庭成员", "家人", "宝宝", "宠物家长"];
+const weekDayLabels = ["一", "二", "三", "四", "五", "六", "日"];
 
 let messageTimer: number | undefined;
 let refreshTimer: number | undefined;
@@ -398,11 +465,16 @@ let refreshTimer: number | undefined;
 const pendingReminders = computed(() => reminders.value.filter((item) => text(item, "status") === "PENDING"));
 const openTodoTasks = computed(() => todoTasks.value.filter((item) => text(item, "status") === "TODO"));
 const completedTodoTasks = computed(() => todoTasks.value.filter((item) => text(item, "status") === "DONE"));
+const periodProfile = computed<AnyRow>(() => ((periodSummary.value.profile as AnyRow) ?? {}) as AnyRow);
+const periodRecords = computed<AnyRow[]>(() =>
+  Array.isArray(periodSummary.value.records) ? (periodSummary.value.records as AnyRow[]) : []
+);
+const periodPrediction = computed<AnyRow>(() => ((periodSummary.value.prediction as AnyRow) ?? {}) as AnyRow);
 const currentPlant = computed(() =>
   plants.value.find((plant) => text(plant, "id") === selectedPlantId.value)
 );
 const myTodoTasks = computed(() =>
-  openTodoTasks.value.filter((item) => text(item, "assignee_id") === String(currentUser.value.memberId ?? ""))
+  openTodoTasks.value.filter((item) => hasTaskAssignee(item, String(currentUser.value.memberId ?? "")))
 );
 const sharedTodoTasks = computed(() => openTodoTasks.value.filter((item) => text(item, "task_scope") === "SHARED"));
 const filteredTodoTasks = computed(() => {
@@ -452,6 +524,13 @@ const currentRecipe = computed(() =>
 const canEditMemberPassword = computed(
   () => memberEditDraft.value.id === String(currentUser.value.memberId ?? "")
 );
+const periodCountdown = computed(() => {
+  const daysUntilNext = Number(periodPrediction.value.days_until_next);
+  if (Number.isFinite(daysUntilNext)) {
+    return `${daysUntilNext}天`;
+  }
+  return `${numberValue(periodProfile.value, "cycle_days") || 28}天周期`;
+});
 const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(() => ({
   todo: {
     key: "todo",
@@ -500,6 +579,14 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
     description: "待处理提醒",
     tone: "tile-ink",
     icon: Bell
+  },
+  period: {
+    key: "period",
+    label: "月经管理",
+    value: periodCountdown.value,
+    description: text(periodPrediction.value, "next_start") ? `下次：${text(periodPrediction.value, "next_start")}` : "记录周期与提醒",
+    tone: "tile-coral",
+    icon: Droplets
   },
   private: {
     key: "private",
@@ -590,6 +677,15 @@ const headerTitle = computed(() => {
   if (activeTab.value === "todo") {
     return todoView.value === "create" ? "新增待办" : todoView.value === "edit" ? "编辑待办" : "家庭待办";
   }
+  if (activeTab.value === "finance") {
+    return financeView.value === "create" ? "新增记账" : "家庭账本";
+  }
+  if (activeTab.value === "private") {
+    return privateView.value === "create" ? "新增留言" : privateView.value === "edit" ? "编辑留言" : "留言板";
+  }
+  if (activeTab.value === "period") {
+    return periodView.value === "profile" ? "周期设置" : periodView.value === "record" ? "记录经期" : "月经管理";
+  }
   if (activeTab.value === "plants") {
     return plantView.value === "create" ? "新增花卉" : plantView.value === "edit" ? "编辑花卉" : "花卉";
   }
@@ -625,6 +721,7 @@ const headerTitle = computed(() => {
       care: "养护",
       shopping: "清单",
       finance: "记账",
+      period: "月经管理",
       private: "私密",
       members: "成员",
       memberAdd: "添加成员",
@@ -665,6 +762,64 @@ function getTodayDateValue(): string {
   const month = `${now.getMonth() + 1}`.padStart(2, "0");
   const day = `${now.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getMonthStartValue(baseDate = new Date()): string {
+  const year = baseDate.getFullYear();
+  const month = `${baseDate.getMonth() + 1}`.padStart(2, "0");
+  return `${year}-${month}-01`;
+}
+
+function dateFromValue(value: string): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function dateTimeFromValue(value: string): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value.length === 10 ? `${value}T00:00:00` : value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function toDateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(dateValue: string, days: number): string {
+  const date = dateFromValue(dateValue);
+  if (!date) {
+    return dateValue;
+  }
+  date.setDate(date.getDate() + days);
+  return toDateValue(date);
+}
+
+function shiftMonth(monthStart: string, offset: number): string {
+  const date = dateFromValue(monthStart) ?? new Date();
+  date.setMonth(date.getMonth() + offset, 1);
+  return getMonthStartValue(date);
+}
+
+function formatMonthLabel(monthStart: string): string {
+  const date = dateFromValue(monthStart);
+  if (!date) {
+    return "";
+  }
+  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
 }
 
 function getWeekStartValue(baseDate = new Date()): string {
@@ -749,10 +904,28 @@ function todoScopeLabel(code: string): string {
   return code === "SHARED" ? "家庭共享" : "个人任务";
 }
 
+function splitIds(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function hasTaskAssignee(task: AnyRow, memberId: string): boolean {
+  if (!memberId) {
+    return false;
+  }
+  const assigneeIds = splitIds(text(task, "assignee_ids"));
+  if (assigneeIds.includes(memberId)) {
+    return true;
+  }
+  return text(task, "assignee_id") === memberId;
+}
+
 function todoAssigneeLabel(task: AnyRow): string {
-  const assigneeName = text(task, "assignee_name");
-  if (assigneeName) {
-    return `认领人：${assigneeName}`;
+  const assigneeNames = text(task, "assignee_names") || text(task, "assignee_name");
+  if (assigneeNames) {
+    return `认领人：${assigneeNames}`;
   }
   if (text(task, "task_scope") === "SHARED") {
     return "待认领";
@@ -800,17 +973,6 @@ function memoryDateLabel(entryType: string): string {
     return "原始生日";
   }
   return "记录日期";
-}
-
-function dateFromValue(value: string): Date | null {
-  if (!value) {
-    return null;
-  }
-  const parsed = new Date(`${value}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  return parsed;
 }
 
 function formatDateValue(value: string): string {
@@ -940,6 +1102,300 @@ function memberName(memberId: string): string {
   return member ? text(member, "display_name") : "家庭成员";
 }
 
+function periodStageLabel(dateValue: string, startOn: string): string {
+  const start = dateFromValue(startOn);
+  const current = dateFromValue(dateValue);
+  if (!start || !current) {
+    return "经期";
+  }
+  const diff = Math.round((current.getTime() - start.getTime()) / 86400000) + 1;
+  return `经期第${Math.max(1, diff)}天`;
+}
+
+function buildOccurrenceDate(baseDateValue: string, targetYear: number): string {
+  const base = dateFromValue(baseDateValue);
+  if (!base) {
+    return "";
+  }
+  const safeDay = Math.min(base.getDate(), new Date(targetYear, base.getMonth() + 1, 0).getDate());
+  return toDateValue(new Date(targetYear, base.getMonth(), safeDay, 12, 0, 0, 0));
+}
+
+function isDateBetween(dateValue: string, startOn: string, endOn: string): boolean {
+  return dateValue >= startOn && dateValue <= endOn;
+}
+
+function pushCalendarEvent(target: CalendarEvent[], event: CalendarEvent, dateStart: string, dateEnd: string) {
+  if (event.date < dateStart || event.date > dateEnd) {
+    return;
+  }
+  target.push(event);
+}
+
+function buildPeriodEvents(dateStart: string, dateEnd: string): CalendarEvent[] {
+  const events: CalendarEvent[] = [];
+  const safePeriodDays = Math.max(1, numberValue(periodProfile.value, "period_days") || 5);
+  const safeCycleDays = Math.max(15, numberValue(periodProfile.value, "cycle_days") || 28);
+  const actualRanges = periodRecords.value.map((record) => {
+    const startOn = text(record, "start_on");
+    const endOn = text(record, "end_on") || addDays(startOn, safePeriodDays - 1);
+    return { startOn, endOn };
+  });
+
+  actualRanges.forEach((range, index) => {
+    if (!range.startOn) {
+      return;
+    }
+    let cursor = range.startOn;
+    while (cursor <= range.endOn) {
+      pushCalendarEvent(
+        events,
+        {
+          id: `period-actual-${index}-${cursor}`,
+          date: cursor,
+          type: "period",
+          label: "经期",
+          title: periodStageLabel(cursor, range.startOn),
+          detail: "已记录本次经期",
+          tone: "period",
+          tab: "period"
+        },
+        dateStart,
+        dateEnd
+      );
+      cursor = addDays(cursor, 1);
+    }
+  });
+
+  const latestStart = text(periodRecords.value[0] ?? {}, "start_on") || text(periodProfile.value, "last_period_start");
+  if (!latestStart) {
+    return events;
+  }
+
+  let predictedStart = latestStart;
+  while (predictedStart >= addDays(dateStart, -safeCycleDays * 2)) {
+    predictedStart = addDays(predictedStart, -safeCycleDays);
+  }
+  predictedStart = addDays(predictedStart, safeCycleDays);
+
+  while (predictedStart <= addDays(dateEnd, safeCycleDays * 2)) {
+    const predictedEnd = addDays(predictedStart, safePeriodDays - 1);
+    const overlapsActual = actualRanges.some((range) => isDateBetween(predictedStart, range.startOn, range.endOn));
+    if (!overlapsActual) {
+      let cursor = predictedStart;
+      while (cursor <= predictedEnd) {
+        pushCalendarEvent(
+          events,
+          {
+            id: `period-predicted-${predictedStart}-${cursor}`,
+            date: cursor,
+            type: "period",
+            label: "预计经期",
+            title: periodStageLabel(cursor, predictedStart),
+            detail: `预测开始：${predictedStart}`,
+            tone: "period-light",
+            tab: "period"
+          },
+          dateStart,
+          dateEnd
+        );
+        cursor = addDays(cursor, 1);
+      }
+      const ovulationOn = addDays(predictedStart, -14);
+      pushCalendarEvent(
+        events,
+        {
+          id: `period-ovulation-${predictedStart}`,
+          date: ovulationOn,
+          type: "period",
+          label: "排卵日",
+          title: "排卵日估算",
+          detail: `易孕期：${addDays(ovulationOn, -5)} 至 ${addDays(ovulationOn, 1)}`,
+          tone: "period-ovulation",
+          tab: "period"
+        },
+        dateStart,
+        dateEnd
+      );
+    }
+    predictedStart = addDays(predictedStart, safeCycleDays);
+  }
+
+  return events;
+}
+
+function buildCalendarEvents(dateStart: string, dateEnd: string): CalendarEvent[] {
+  const events: CalendarEvent[] = [];
+
+  todoTasks.value.forEach((task) => {
+    const dueAt = text(task, "due_at");
+    const date = dueAt.slice(0, 10);
+    if (!date) {
+      return;
+    }
+    pushCalendarEvent(
+      events,
+      {
+        id: `todo-${text(task, "id")}`,
+        date,
+        type: "todo",
+        label: text(task, "status") === "DONE" ? "已完成待办" : "待办",
+        title: text(task, "title"),
+        detail: `${todoScopeLabel(text(task, "task_scope"))} · ${todoAssigneeLabel(task)}`,
+        tone: text(task, "status") === "DONE" ? "todo-done" : "todo",
+        tab: "todo"
+      },
+      dateStart,
+      dateEnd
+    );
+  });
+
+  pendingReminders.value.forEach((reminder) => {
+    const dueAt = text(reminder, "due_at");
+    const date = dueAt.slice(0, 10);
+    if (!date) {
+      return;
+    }
+    pushCalendarEvent(
+      events,
+      {
+        id: `reminder-${text(reminder, "id")}`,
+        date,
+        type: "reminder",
+        label: "提醒",
+        title: text(reminder, "title"),
+        detail: formatDateTime(dueAt),
+        tone: "reminder",
+        tab: "reminders"
+      },
+      dateStart,
+      dateEnd
+    );
+  });
+
+  allCareRecords.value.forEach((record) => {
+    const careDate = text(record, "care_date");
+    if (!careDate) {
+      return;
+    }
+    pushCalendarEvent(
+      events,
+      {
+        id: `care-${text(record, "id")}`,
+        date: careDate,
+        type: "care",
+        label: "养护",
+        title: `${text(record, "plant_name") || "花卉"} · ${careTypeLabel(text(record, "care_type"))}`,
+        detail: text(record, "detail") || text(record, "raw_text") || "已记录养护",
+        tone: "care",
+        tab: "care"
+      },
+      dateStart,
+      dateEnd
+    );
+  });
+
+  albumPhotos.value.forEach((entry) => {
+    const entryType = text(entry, "entry_type") || "PHOTO";
+    const takenOn = text(entry, "taken_on");
+    const createdAt = text(entry, "created_at").slice(0, 10);
+    if (entryType === "ANNIVERSARY" || entryType === "BIRTHDAY") {
+      const visibleYear = dateFromValue(visibleMonth.value)?.getFullYear() ?? new Date().getFullYear();
+      const date = buildOccurrenceDate(takenOn, visibleYear);
+      if (!date) {
+        return;
+      }
+      pushCalendarEvent(
+        events,
+        {
+          id: `memory-recurring-${text(entry, "id")}-${visibleYear}`,
+          date,
+          type: "memory",
+          label: memoryEntryTypeLabel(entryType),
+          title: text(entry, "title"),
+          detail: memoryCountdownLabel(entry),
+          tone: "memory",
+          tab: "album"
+        },
+        dateStart,
+        dateEnd
+      );
+      return;
+    }
+    const date = takenOn || createdAt;
+    if (!date) {
+      return;
+    }
+    pushCalendarEvent(
+      events,
+      {
+        id: `memory-${text(entry, "id")}`,
+        date,
+        type: "memory",
+        label: memoryEntryTypeLabel(entryType),
+        title: text(entry, "title"),
+        detail: text(entry, "description") || text(entry, "wish_text") || "已记录时刻",
+        tone: "memory",
+        tab: "album"
+      },
+      dateStart,
+      dateEnd
+    );
+  });
+
+  return [...events, ...buildPeriodEvents(dateStart, dateEnd)].sort((left, right) => {
+    if (left.date !== right.date) {
+      return left.date.localeCompare(right.date);
+    }
+    return left.label.localeCompare(right.label, "zh-Hans-CN");
+  });
+}
+
+function buildCalendarCells(monthStart: string) {
+  const firstDay = dateFromValue(monthStart) ?? new Date();
+  const gridStart = new Date(firstDay);
+  const offset = (firstDay.getDay() + 6) % 7;
+  gridStart.setDate(firstDay.getDate() - offset);
+  const events = buildCalendarEvents(toDateValue(gridStart), toDateValue(new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + 41, 12, 0, 0, 0)));
+  const eventMap = new Map<string, CalendarEvent[]>();
+  events.forEach((event) => {
+    const list = eventMap.get(event.date) ?? [];
+    list.push(event);
+    eventMap.set(event.date, list);
+  });
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    const dateValue = toDateValue(date);
+    const dayEvents = eventMap.get(dateValue) ?? [];
+    return {
+      date: dateValue,
+      day: date.getDate(),
+      inMonth: date.getMonth() === firstDay.getMonth(),
+      isToday: dateValue === getTodayDateValue(),
+      isSelected: dateValue === selectedCalendarDate.value,
+      events: dayEvents.slice(0, 3),
+      eventCount: dayEvents.length
+    };
+  });
+}
+
+const visibleMonthLabel = computed(() => formatMonthLabel(visibleMonth.value));
+const calendarCells = computed(() => buildCalendarCells(visibleMonth.value));
+const selectedDayEvents = computed(() => buildCalendarEvents(selectedCalendarDate.value, selectedCalendarDate.value));
+
+function selectCalendarDate(dateValue: string) {
+  selectedCalendarDate.value = dateValue;
+}
+
+function openCalendarMonth(offset: number) {
+  visibleMonth.value = shiftMonth(visibleMonth.value, offset);
+  const firstVisibleDate = visibleMonth.value.slice(0, 7);
+  if (!selectedCalendarDate.value.startsWith(firstVisibleDate)) {
+    selectedCalendarDate.value = visibleMonth.value;
+  }
+}
+
 function voteOptions(vote: AnyRow): AnyRow[] {
   const options = vote.options;
   return Array.isArray(options) ? (options as AnyRow[]) : [];
@@ -1015,12 +1471,13 @@ function syncPetEditDraft() {
 function resetTodoDraft() {
   todoDraft.value = {
     title: "",
-    taskScope: "SHARED",
+    taskScope: "PERSONAL",
     assigneeId: "",
+    assigneeIds: [],
     taskType: "TEMPORARY",
     cycleRule: "",
     note: "",
-    dueAt: ""
+    dueAt: selectedCalendarDate.value ? `${selectedCalendarDate.value}T18:00` : ""
   };
 }
 
@@ -1030,10 +1487,50 @@ function syncTodoEditDraft(task: AnyRow) {
     title: text(task, "title"),
     taskScope: text(task, "task_scope") || "PERSONAL",
     assigneeId: text(task, "assignee_id"),
+    assigneeIds: splitIds(text(task, "assignee_ids")),
     taskType: text(task, "task_type") || "TEMPORARY",
     cycleRule: text(task, "cycle_rule"),
     note: text(task, "note"),
     dueAt: text(task, "due_at")
+  };
+}
+
+function resetPrivateDraft() {
+  privateDraft.value = {
+    content: "",
+    visibility: "TO_PARTNER",
+    receiverMemberId: text(otherMembers.value[0] ?? {}, "id"),
+    messageDate: selectedCalendarDate.value || getTodayDateValue()
+  };
+}
+
+function syncPrivateEditDraft(messageItem: AnyRow) {
+  privateEditDraft.value = {
+    id: text(messageItem, "id"),
+    content: text(messageItem, "content"),
+    visibility: text(messageItem, "visibility") || "TO_PARTNER",
+    receiverMemberId: text(messageItem, "receiver_member_id"),
+    messageDate: text(messageItem, "message_date") || text(messageItem, "created_at").slice(0, 10)
+  };
+}
+
+function syncPeriodProfileDraft() {
+  periodProfileDraft.value = {
+    cycleDays: String(numberValue(periodProfile.value, "cycle_days") || 28),
+    periodDays: String(numberValue(periodProfile.value, "period_days") || 5),
+    lastPeriodStart: text(periodProfile.value, "last_period_start"),
+    reminderEnabled:
+      text(periodProfile.value, "reminder_enabled") === "true" || text(periodProfile.value, "reminder_enabled") === "1",
+    reminderTime: text(periodProfile.value, "reminder_time") || "09:00",
+    note: text(periodProfile.value, "note")
+  };
+}
+
+function resetPeriodRecordDraft() {
+  periodRecordDraft.value = {
+    startOn: selectedCalendarDate.value || getTodayDateValue(),
+    endOn: "",
+    note: ""
   };
 }
 
@@ -1160,8 +1657,18 @@ function resetPetEditDraft() {
 
 function openTab(tab: TabKey) {
   activeTab.value = tab;
+  drawerOpen.value = false;
   if (tab === "todo") {
     todoView.value = "list";
+  }
+  if (tab === "finance") {
+    financeView.value = "list";
+  }
+  if (tab === "private") {
+    privateView.value = "list";
+  }
+  if (tab === "period") {
+    periodView.value = "list";
   }
   if (tab === "plants") {
     plantView.value = "list";
@@ -1196,6 +1703,7 @@ function openTab(tab: TabKey) {
 }
 
 function goHome() {
+  drawerOpen.value = false;
   activeTab.value = "today";
 }
 
@@ -1206,6 +1714,30 @@ function goBack() {
   if (activeTab.value === "todo") {
     if (todoView.value !== "list") {
       todoView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "finance") {
+    if (financeView.value !== "list") {
+      financeView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "private") {
+    if (privateView.value !== "list") {
+      privateView.value = "list";
+      return;
+    }
+    goHome();
+    return;
+  }
+  if (activeTab.value === "period") {
+    if (periodView.value !== "list") {
+      periodView.value = "list";
       return;
     }
     goHome();
@@ -1355,6 +1887,36 @@ function startCreateShopping() {
 
 function startCreateReminder() {
   reminderView.value = "create";
+}
+
+function startCreateFinanceRecord() {
+  financeDraft.value = {
+    title: "",
+    amount: "",
+    category: "MEAL",
+    occurredOn: selectedCalendarDate.value || ""
+  };
+  financeView.value = "create";
+}
+
+function startCreatePrivateMessage() {
+  resetPrivateDraft();
+  privateView.value = "create";
+}
+
+function startEditPrivateMessage(messageItem: AnyRow) {
+  syncPrivateEditDraft(messageItem);
+  privateView.value = "edit";
+}
+
+function startEditPeriodProfile() {
+  syncPeriodProfileDraft();
+  periodView.value = "profile";
+}
+
+function startCreatePeriodRecord() {
+  resetPeriodRecordDraft();
+  periodView.value = "record";
 }
 
 function startEditProfile() {
@@ -1545,6 +2107,7 @@ function showMessage(textValue: string, type: ToastType = "success", timeout = 2
 }
 
 function resetDataState() {
+  drawerOpen.value = false;
   currentUser.value = {};
   family.value = {};
   today.value = {
@@ -1567,6 +2130,20 @@ function resetDataState() {
     weekExpense: 0
   };
   careRecords.value = [];
+  allCareRecords.value = [];
+  periodSummary.value = {
+    profile: {
+      cycle_days: 28,
+      period_days: 5,
+      last_period_start: "",
+      reminder_enabled: true,
+      reminder_time: "09:00",
+      note: "",
+      has_profile: false
+    },
+    records: [],
+    prediction: {}
+  };
   privateMessages.value = [];
   albumPhotos.value = [];
   inventoryItems.value = [];
@@ -1579,13 +2156,18 @@ function resetDataState() {
   selectedTodoId.value = "";
   selectedPlantId.value = "";
   selectedMemoryId.value = "";
+  selectedCalendarDate.value = getTodayDateValue();
   selectedInventoryId.value = "";
   selectedRecipeId.value = "";
   selectedPetId.value = "";
+  visibleMonth.value = getMonthStartValue();
   plantView.value = "list";
   careView.value = "list";
   todoView.value = "list";
   todoFilter.value = "all";
+  financeView.value = "list";
+  privateView.value = "list";
+  periodView.value = "list";
   reminderView.value = "list";
   profileView.value = "detail";
   memoryView.value = "list";
@@ -1598,6 +2180,10 @@ function resetDataState() {
   profilePasswordVisible.value = false;
   profilePasswordHintVisible.value = false;
   memberEditPasswordVisible.value = false;
+  calendarTodoDraft.value = {
+    title: "",
+    time: "18:00"
+  };
   mealPlanWeekStart.value = getWeekStartValue();
   homeCardOrder.value = [...defaultHomeCardOrder];
   savedHomeCardOrder.value = [...defaultHomeCardOrder];
@@ -1723,6 +2309,7 @@ async function loadAll(options: { silent?: boolean } = {}) {
       financeData,
       financeOverviewData,
       categoryData,
+      periodData,
       privateData,
       albumData,
       inventoryData,
@@ -1741,6 +2328,7 @@ async function loadAll(options: { silent?: boolean } = {}) {
       api.financeRecords(),
       api.financeOverview(),
       api.financeCategories(),
+      api.periodMine(),
       api.privateMessages(),
       api.albumPhotos(),
       api.inventoryItems(),
@@ -1760,6 +2348,7 @@ async function loadAll(options: { silent?: boolean } = {}) {
     financeRecords.value = financeData;
     financeOverview.value = financeOverviewData;
     financeCategories.value = categoryData;
+    periodSummary.value = periodData;
     privateMessages.value = privateData;
     albumPhotos.value = albumData;
     inventoryItems.value = inventoryData;
@@ -1769,6 +2358,9 @@ async function loadAll(options: { silent?: boolean } = {}) {
     pets.value = petData;
     if (profileView.value !== "edit") {
       syncProfileDraft();
+    }
+    if (periodView.value !== "profile") {
+      syncPeriodProfileDraft();
     }
     syncPurchaseDrafts(shoppingData);
 
@@ -1802,11 +2394,36 @@ async function loadAll(options: { silent?: boolean } = {}) {
       privateDraft.value.receiverMemberId = text(otherMembers.value[0] ?? {}, "id");
     }
 
-    await Promise.all([loadPetDetails(true), loadCareRecords(true)]);
+    await Promise.all([loadPetDetails(true), loadCareRecords(true), loadAllCareRecords(plantData, true)]);
   } finally {
     if (!silent) {
       loading.value = false;
     }
+  }
+}
+
+async function loadAllCareRecords(plantData = plants.value, silent = false) {
+  if (plantData.length === 0) {
+    allCareRecords.value = [];
+    return;
+  }
+  try {
+    const result = await Promise.all(
+      plantData.map(async (plant) => {
+        const plantId = Number(text(plant, "id"));
+        const recordsOfPlant = await api.careRecords(plantId);
+        return recordsOfPlant.map((record) => ({
+          ...record,
+          plant_name: text(plant, "name")
+        }));
+      })
+    );
+    allCareRecords.value = result.flat();
+  } catch (error) {
+    if (silent) {
+      throw error;
+    }
+    handleRequestError(error, "养护日历加载失败");
   }
 }
 
@@ -1884,20 +2501,66 @@ function buildTodoPayload(source: {
   title: string;
   taskScope: string;
   assigneeId: string;
+  assigneeIds: string[];
   taskType: string;
   cycleRule: string;
   note: string;
   dueAt: string;
 }) {
+  const assigneeIds =
+    source.taskScope === "SHARED"
+      ? source.assigneeIds
+          .map((item) => Number(item))
+          .filter((item) => Number.isFinite(item) && item > 0)
+      : [];
   return {
     title: source.title,
     taskScope: source.taskScope,
     assigneeId: source.taskScope === "SHARED" && source.assigneeId ? Number(source.assigneeId) : undefined,
+    assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
     taskType: source.taskType,
     cycleRule: source.cycleRule,
     note: source.note,
     dueAt: source.dueAt || undefined
   };
+}
+
+function toggleTodoAssignee(target: typeof todoDraft.value | typeof todoEditDraft.value, memberId: string) {
+  if (!memberId) {
+    return;
+  }
+  const exists = target.assigneeIds.includes(memberId);
+  target.assigneeIds = exists ? target.assigneeIds.filter((item) => item !== memberId) : [...target.assigneeIds, memberId];
+  if (!target.assigneeId || !target.assigneeIds.includes(target.assigneeId)) {
+    target.assigneeId = target.assigneeIds[0] ?? "";
+  }
+}
+
+function canClaimTask(task: AnyRow): boolean {
+  if (text(task, "status") !== "TODO" || text(task, "task_scope") !== "SHARED") {
+    return false;
+  }
+  return !hasTaskAssignee(task, String(currentUser.value.memberId ?? ""));
+}
+
+async function submitCalendarTodo() {
+  if (!calendarTodoDraft.value.title.trim()) {
+    showMessage("请先填写待办标题", "error");
+    return;
+  }
+  const dueAt = selectedCalendarDate.value
+    ? `${selectedCalendarDate.value}T${calendarTodoDraft.value.time || "18:00"}`
+    : undefined;
+  await executeAction("calendar-todo-create", "日历待办创建失败", async () => {
+    await api.createTodo({
+      title: calendarTodoDraft.value.title,
+      taskScope: "PERSONAL",
+      dueAt
+    });
+    calendarTodoDraft.value.title = "";
+    await loadAll();
+    showMessage("待办已加入日历");
+  });
 }
 
 async function submitTodoCreate() {
@@ -1932,7 +2595,7 @@ async function claimTodoTask(id: number) {
   await executeAction(`todo-claim-${id}`, "认领待办失败", async () => {
     await api.claimTodo(id);
     await loadAll();
-    showMessage("任务已认领");
+    showMessage("已加入认领名单");
   });
 }
 
@@ -2428,6 +3091,7 @@ async function submitFinanceRecord() {
       category: "MEAL",
       occurredOn: ""
     };
+    financeView.value = "list";
     await loadAll();
     showMessage("支出已记录");
   });
@@ -2589,15 +3253,43 @@ async function submitPrivateMessage() {
     return;
   }
   await executeAction("private-create", "保存留言失败", async () => {
+    const receiverMemberId = Number(privateDraft.value.receiverMemberId);
     await api.createPrivateMessage({
       content: privateDraft.value.content,
       visibility: privateDraft.value.visibility,
       receiverMemberId:
-        privateDraft.value.visibility === "TO_PARTNER" ? Number(privateDraft.value.receiverMemberId) : undefined
+        privateDraft.value.visibility === "TO_PARTNER" && Number.isFinite(receiverMemberId) && receiverMemberId > 0
+          ? receiverMemberId
+          : undefined,
+      messageDate: privateDraft.value.messageDate || undefined
     });
-    privateDraft.value.content = "";
+    resetPrivateDraft();
+    privateView.value = "list";
     await loadAll();
     showMessage("留言已保存");
+  });
+}
+
+async function submitPrivateMessageEdit() {
+  const id = Number(privateEditDraft.value.id);
+  if (!Number.isFinite(id) || id <= 0 || !privateEditDraft.value.content.trim()) {
+    showMessage("请先完善留言内容", "error");
+    return;
+  }
+  await executeAction("private-update", "更新留言失败", async () => {
+    const receiverMemberId = Number(privateEditDraft.value.receiverMemberId);
+    await api.updatePrivateMessage(id, {
+      content: privateEditDraft.value.content,
+      visibility: privateEditDraft.value.visibility,
+      receiverMemberId:
+        privateEditDraft.value.visibility === "TO_PARTNER" && Number.isFinite(receiverMemberId) && receiverMemberId > 0
+          ? receiverMemberId
+          : undefined,
+      messageDate: privateEditDraft.value.messageDate || undefined
+    });
+    privateView.value = "list";
+    await loadAll();
+    showMessage("留言已更新");
   });
 }
 
@@ -2606,6 +3298,45 @@ async function markPrivateMessageRead(id: number) {
     await api.readPrivateMessage(id);
     await loadAll();
     showMessage("已标记为已读");
+  });
+}
+
+async function submitPeriodProfile() {
+  const cycleDays = Number(periodProfileDraft.value.cycleDays);
+  const periodDays = Number(periodProfileDraft.value.periodDays);
+  if (!Number.isFinite(cycleDays) || cycleDays <= 0 || !Number.isFinite(periodDays) || periodDays <= 0) {
+    showMessage("请先填写正确的周期和经期天数", "error");
+    return;
+  }
+  await executeAction("period-profile", "保存周期设置失败", async () => {
+    await api.savePeriodProfile({
+      cycleDays,
+      periodDays,
+      lastPeriodStart: periodProfileDraft.value.lastPeriodStart || undefined,
+      reminderEnabled: periodProfileDraft.value.reminderEnabled,
+      reminderTime: periodProfileDraft.value.reminderTime || undefined,
+      note: periodProfileDraft.value.note || undefined
+    });
+    periodView.value = "list";
+    await loadAll();
+    showMessage("周期设置已保存");
+  });
+}
+
+async function submitPeriodRecord() {
+  if (!periodRecordDraft.value.startOn) {
+    showMessage("请先选择经期开始日期", "error");
+    return;
+  }
+  await executeAction("period-record", "保存经期记录失败", async () => {
+    await api.createPeriodRecord({
+      startOn: periodRecordDraft.value.startOn,
+      endOn: periodRecordDraft.value.endOn || undefined,
+      note: periodRecordDraft.value.note || undefined
+    });
+    periodView.value = "list";
+    await loadAll();
+    showMessage("经期记录已保存");
   });
 }
 
@@ -2875,7 +3606,17 @@ watch(
     <header class="topbar">
       <div class="topbar-main">
         <button
-          v-if="activeTab !== 'today'"
+          v-if="activeTab === 'today'"
+          class="icon-button"
+          type="button"
+          aria-label="打开模块抽屉"
+          title="打开模块抽屉"
+          @click="drawerOpen = true"
+        >
+          <Menu :size="19" />
+        </button>
+        <button
+          v-else
           class="icon-button"
           type="button"
           aria-label="返回上一层"
@@ -2913,38 +3654,133 @@ watch(
       </div>
     </header>
 
+    <div v-if="drawerOpen" class="drawer-backdrop" @click="drawerOpen = false" />
+    <aside :class="['module-drawer', { open: drawerOpen }]">
+      <div class="section-title">
+        <h2>模块入口</h2>
+        <button class="icon-button" type="button" aria-label="关闭模块抽屉" title="关闭模块抽屉" @click="drawerOpen = false">
+          <ArrowLeft :size="18" />
+        </button>
+      </div>
+      <div class="drawer-list">
+        <article
+          v-for="entry in homeCards"
+          :key="entry.key"
+          :data-home-card-key="entry.key"
+          :class="['drawer-module-card', entry.tone, { dragging: homeCardDraggingKey === entry.key }]"
+        >
+          <button class="drawer-module-open" type="button" @click="openTab(entry.key)">
+            <component :is="entry.icon" :size="18" />
+            <div>
+              <strong>{{ entry.label }}</strong>
+              <span>{{ entry.description }}</span>
+            </div>
+            <small>{{ entry.value }}</small>
+          </button>
+          <button
+            class="home-module-grip"
+            type="button"
+            aria-label="拖动排序"
+            title="拖动排序"
+            @pointerdown="beginHomeCardDrag(entry.key, $event)"
+          >
+            <GripVertical :size="16" />
+          </button>
+        </article>
+      </div>
+    </aside>
+
     <p v-if="message" :class="['toast', `toast-${messageType}`]">{{ message }}</p>
 
     <section v-if="activeTab === 'today'" class="view">
-      <article class="list-card module-home-card">
+      <div class="summary-strip">
+        <article class="mini-metric">
+          <span>待办</span>
+          <strong>{{ openTodoTasks.length }}</strong>
+        </article>
+        <article class="mini-metric">
+          <span>提醒</span>
+          <strong>{{ pendingReminders.length }}</strong>
+        </article>
+        <article class="mini-metric">
+          <span>本月支出</span>
+          <strong>{{ numberValue(financeOverview, "monthExpense") }}</strong>
+        </article>
+      </div>
+
+      <article class="list-card calendar-card">
         <div class="section-title">
-          <h2>全部模块</h2>
-          <span>{{ homeCards.length }}</span>
+          <button class="icon-button" type="button" aria-label="上个月" title="上个月" @click="openCalendarMonth(-1)">
+            <ArrowLeft :size="17" />
+          </button>
+          <h2>{{ visibleMonthLabel }}</h2>
+          <button class="icon-button" type="button" aria-label="下个月" title="下个月" @click="openCalendarMonth(1)">
+            <ArrowLeft class="calendar-next-icon" :size="17" />
+          </button>
         </div>
-        <div class="module-card-grid">
-          <article
-            v-for="entry in homeCards"
-            :key="entry.key"
-            :data-home-card-key="entry.key"
-            :class="['home-module-card', entry.tone, { dragging: homeCardDraggingKey === entry.key }]"
+        <div class="calendar-grid calendar-weekdays">
+          <span v-for="label in weekDayLabels" :key="label">{{ label }}</span>
+        </div>
+        <div class="calendar-grid">
+          <button
+            v-for="cell in calendarCells"
+            :key="cell.date"
+            :class="[
+              'calendar-cell',
+              {
+                'is-outside': !cell.inMonth,
+                'is-today': cell.isToday,
+                'is-selected': cell.isSelected
+              }
+            ]"
+            type="button"
+            @click="selectCalendarDate(cell.date)"
           >
-            <button class="home-module-open" type="button" @click="openTab(entry.key)">
-              <component :is="entry.icon" :size="20" />
-              <span>{{ entry.label }}</span>
-              <strong>{{ entry.value }}</strong>
-              <small>{{ entry.description }}</small>
-            </button>
-            <button
-              class="home-module-grip"
-              type="button"
-              aria-label="拖动排序"
-              title="拖动排序"
-              @pointerdown="beginHomeCardDrag(entry.key, $event)"
-            >
-              <GripVertical :size="16" />
-            </button>
-          </article>
+            <strong>{{ cell.day }}</strong>
+            <div class="calendar-dots">
+              <span
+                v-for="event in cell.events"
+                :key="event.id"
+                :class="['calendar-dot', `calendar-dot-${event.tone}`]"
+              />
+              <small v-if="cell.eventCount > 3">+{{ cell.eventCount - 3 }}</small>
+            </div>
+          </button>
         </div>
+      </article>
+
+      <article class="list-card quick-add-card">
+        <div class="section-title">
+          <h2>当日待办</h2>
+          <span>{{ selectedCalendarDate }}</span>
+        </div>
+        <div class="inline-fields">
+          <input v-model="calendarTodoDraft.title" placeholder="今天要做什么" />
+          <input v-model="calendarTodoDraft.time" type="time" />
+        </div>
+        <button class="secondary-button" :disabled="isSubmitting('calendar-todo-create')" type="button" @click="submitCalendarTodo()">
+          <LoaderCircle v-if="isSubmitting('calendar-todo-create')" class="spin" :size="17" />
+          <Plus v-else :size="17" />
+          <span>添加到这一天</span>
+        </button>
+      </article>
+
+      <article class="list-card day-detail-card">
+        <div class="section-title">
+          <h2>当日详情</h2>
+          <span>{{ selectedDayEvents.length }}</span>
+        </div>
+        <p v-if="selectedDayEvents.length === 0" class="empty">这一天暂时没有安排</p>
+        <article v-for="event in selectedDayEvents" :key="event.id" class="calendar-event-row">
+          <span :class="['calendar-event-tag', `calendar-event-tag-${event.tone}`]">{{ event.label }}</span>
+          <div class="feed-main">
+            <p>{{ event.title }}</p>
+            <small>{{ event.detail }}</small>
+          </div>
+          <button class="text-button" type="button" @click="openTab(event.tab)">
+            查看
+          </button>
+        </article>
       </article>
     </section>
 
@@ -2987,7 +3823,7 @@ watch(
           </div>
           <div class="row-actions">
             <button
-              v-if="text(task, 'status') === 'TODO' && text(task, 'task_scope') === 'SHARED' && !text(task, 'assignee_id')"
+              v-if="canClaimTask(task)"
               class="icon-button"
               type="button"
               aria-label="认领任务"
@@ -3033,22 +3869,31 @@ watch(
         <input v-model="todoDraft.title" placeholder="待办标题" />
         <div class="inline-fields">
           <select v-model="todoDraft.taskScope">
-            <option value="SHARED">家庭共享任务</option>
             <option value="PERSONAL">个人任务</option>
+            <option value="SHARED">家庭共享任务</option>
           </select>
           <input v-model="todoDraft.dueAt" type="datetime-local" placeholder="截止时间" />
         </div>
         <div v-if="todoDraft.taskScope === 'SHARED'" class="inline-fields">
-          <select v-model="todoDraft.assigneeId">
-            <option value="">暂不认领</option>
-            <option v-for="member in familyMembers" :key="text(member, 'id')" :value="text(member, 'id')">
-              {{ text(member, "display_name") }}
-            </option>
-          </select>
           <select v-model="todoDraft.taskType">
             <option value="TEMPORARY">临时任务</option>
             <option value="ROUTINE">周期任务</option>
           </select>
+          <input v-model="todoDraft.cycleRule" placeholder="周期规则，如每周六" />
+        </div>
+        <div v-if="todoDraft.taskScope === 'SHARED'" class="field-stack">
+          <span class="field-label">认领成员（可多选，可留空）</span>
+          <div class="option-chip-group">
+            <button
+              v-for="member in familyMembers"
+              :key="`todo-create-${text(member, 'id')}`"
+              :class="['option-chip', { active: todoDraft.assigneeIds.includes(text(member, 'id')) }]"
+              type="button"
+              @click="toggleTodoAssignee(todoDraft, text(member, 'id'))"
+            >
+              <span>{{ text(member, "display_name") }}</span>
+            </button>
+          </div>
         </div>
         <textarea v-model="todoDraft.note" rows="4" placeholder="补充说明" />
         <button class="secondary-button" :disabled="isSubmitting('todo-create')" type="button" @click="submitTodoCreate()">
@@ -3075,16 +3920,25 @@ watch(
           <input v-model="todoEditDraft.dueAt" type="datetime-local" placeholder="截止时间" />
         </div>
         <div v-if="todoEditDraft.taskScope === 'SHARED'" class="inline-fields">
-          <select v-model="todoEditDraft.assigneeId">
-            <option value="">暂不认领</option>
-            <option v-for="member in familyMembers" :key="text(member, 'id')" :value="text(member, 'id')">
-              {{ text(member, "display_name") }}
-            </option>
-          </select>
           <select v-model="todoEditDraft.taskType">
             <option value="TEMPORARY">临时任务</option>
             <option value="ROUTINE">周期任务</option>
           </select>
+          <input v-model="todoEditDraft.cycleRule" placeholder="周期规则，如每周六" />
+        </div>
+        <div v-if="todoEditDraft.taskScope === 'SHARED'" class="field-stack">
+          <span class="field-label">认领成员（可多选，可留空）</span>
+          <div class="option-chip-group">
+            <button
+              v-for="member in familyMembers"
+              :key="`todo-edit-${text(member, 'id')}`"
+              :class="['option-chip', { active: todoEditDraft.assigneeIds.includes(text(member, 'id')) }]"
+              type="button"
+              @click="toggleTodoAssignee(todoEditDraft, text(member, 'id'))"
+            >
+              <span>{{ text(member, "display_name") }}</span>
+            </button>
+          </div>
         </div>
         <textarea v-model="todoEditDraft.note" rows="4" placeholder="补充说明" />
         <button class="secondary-button" :disabled="isSubmitting('todo-update')" type="button" @click="submitTodoEdit()">
@@ -3112,7 +3966,14 @@ watch(
           :class="['plant-card', 'plant-photo-card', { active: text(plant, 'id') === selectedPlantId }]"
           @click="selectedPlantId = text(plant, 'id')"
         >
-          <img v-if="text(plant, 'cover_url')" class="plant-cover" :src="text(plant, 'cover_url')" :alt="text(plant, 'name')" />
+          <img
+            v-if="text(plant, 'cover_url')"
+            class="plant-cover"
+            :src="text(plant, 'cover_url')"
+            :alt="text(plant, 'name')"
+            loading="lazy"
+            decoding="async"
+          />
           <span v-else class="plant-cover plant-cover-placeholder">
             <Leaf :size="18" />
           </span>
@@ -3121,20 +3982,22 @@ watch(
             <p>{{ text(plant, "flower_color") || "未记录花色" }} · {{ text(plant, "location") || "未记录位置" }}</p>
             <small v-if="text(plant, 'care_preference')">{{ text(plant, "care_preference") }}</small>
           </div>
-          <strong>{{ plantStatusLabel(text(plant, "status")) }}</strong>
-          <div class="row-actions">
-            <button class="icon-button" type="button" aria-label="编辑花卉" title="编辑花卉" @click.stop="startEditPlant(plant)">
-              <Pencil :size="16" />
-            </button>
-            <button
-              class="icon-button danger-icon-button"
-              type="button"
-              aria-label="删除花卉"
-              title="删除花卉"
-              @click.stop="deletePlant(numberValue(plant, 'id'))"
-            >
-              <Trash2 :size="16" />
-            </button>
+          <div class="plant-side">
+            <strong>{{ plantStatusLabel(text(plant, "status")) }}</strong>
+            <div class="row-actions">
+              <button class="icon-button" type="button" aria-label="编辑花卉" title="编辑花卉" @click.stop="startEditPlant(plant)">
+                <Pencil :size="16" />
+              </button>
+              <button
+                class="icon-button danger-icon-button"
+                type="button"
+                aria-label="删除花卉"
+                title="删除花卉"
+                @click.stop="deletePlant(numberValue(plant, 'id'))"
+              >
+                <Trash2 :size="16" />
+              </button>
+            </div>
           </div>
         </article>
       </template>
@@ -3418,6 +4281,105 @@ watch(
       </article>
     </section>
 
+    <section v-if="activeTab === 'period'" class="view">
+      <article v-if="periodView === 'list'" class="list-card">
+        <div class="section-title">
+          <h2>周期概览</h2>
+          <div class="row-actions">
+            <button class="icon-button" type="button" aria-label="记录经期" title="记录经期" @click="startCreatePeriodRecord()">
+              <Plus :size="18" />
+            </button>
+            <button class="icon-button" type="button" aria-label="周期设置" title="周期设置" @click="startEditPeriodProfile()">
+              <Pencil :size="18" />
+            </button>
+          </div>
+        </div>
+        <div class="summary-strip">
+          <article class="mini-metric">
+            <span>周期长度</span>
+            <strong>{{ numberValue(periodProfile, "cycle_days") || 28 }}天</strong>
+          </article>
+          <article class="mini-metric">
+            <span>经期长度</span>
+            <strong>{{ numberValue(periodProfile, "period_days") || 5 }}天</strong>
+          </article>
+          <article class="mini-metric">
+            <span>下次预计</span>
+            <strong>{{ text(periodPrediction, "next_start") || "待记录" }}</strong>
+          </article>
+        </div>
+        <div class="feed-item">
+          <span>最近开始日期</span>
+          <p>{{ text(periodProfile, "last_period_start") || "还没有记录" }}</p>
+          <small v-if="text(periodPrediction, 'ovulation_on')">
+            排卵日估算：{{ text(periodPrediction, "ovulation_on") }} · 易孕期：{{ text(periodPrediction, "fertile_start") }} 到
+            {{ text(periodPrediction, "fertile_end") }}
+          </small>
+          <small v-if="text(periodProfile, 'note')">{{ text(periodProfile, "note") }}</small>
+        </div>
+      </article>
+
+      <article v-if="periodView === 'list'" class="list-card">
+        <div class="section-title">
+          <h2>经期记录</h2>
+          <span>{{ periodRecords.length }}</span>
+        </div>
+        <p v-if="periodRecords.length === 0" class="empty">还没有经期记录</p>
+        <div v-for="record in periodRecords" :key="text(record, 'id')" class="feed-item">
+          <span>{{ text(record, "start_on") }} <template v-if="text(record, 'end_on')">至 {{ text(record, "end_on") }}</template></span>
+          <p>{{ text(record, "note") || "已记录本次经期" }}</p>
+        </div>
+      </article>
+
+      <article v-else-if="periodView === 'profile'" class="form-card">
+        <div class="section-title">
+          <button class="icon-button" type="button" aria-label="返回周期概览" title="返回周期概览" @click="periodView = 'list'">
+            <ArrowLeft :size="18" />
+          </button>
+          <h2>周期设置</h2>
+          <Droplets :size="18" />
+        </div>
+        <div class="inline-fields">
+          <input v-model="periodProfileDraft.cycleDays" inputmode="numeric" placeholder="周期天数" />
+          <input v-model="periodProfileDraft.periodDays" inputmode="numeric" placeholder="经期天数" />
+        </div>
+        <input v-model="periodProfileDraft.lastPeriodStart" type="date" />
+        <div class="inline-fields">
+          <label class="check-row">
+            <input v-model="periodProfileDraft.reminderEnabled" type="checkbox" />
+            <span>开启提醒</span>
+          </label>
+          <input v-model="periodProfileDraft.reminderTime" type="time" />
+        </div>
+        <textarea v-model="periodProfileDraft.note" rows="3" placeholder="补充说明" />
+        <button class="secondary-button" :disabled="isSubmitting('period-profile')" type="button" @click="submitPeriodProfile()">
+          <LoaderCircle v-if="isSubmitting('period-profile')" class="spin" :size="17" />
+          <Check v-else :size="17" />
+          <span>保存周期设置</span>
+        </button>
+      </article>
+
+      <article v-else class="form-card">
+        <div class="section-title">
+          <button class="icon-button" type="button" aria-label="返回周期概览" title="返回周期概览" @click="periodView = 'list'">
+            <ArrowLeft :size="18" />
+          </button>
+          <h2>记录经期</h2>
+          <Droplets :size="18" />
+        </div>
+        <div class="inline-fields">
+          <input v-model="periodRecordDraft.startOn" type="date" />
+          <input v-model="periodRecordDraft.endOn" type="date" />
+        </div>
+        <textarea v-model="periodRecordDraft.note" rows="3" placeholder="如经量、状态、备注" />
+        <button class="secondary-button" :disabled="isSubmitting('period-record')" type="button" @click="submitPeriodRecord()">
+          <LoaderCircle v-if="isSubmitting('period-record')" class="spin" :size="17" />
+          <Plus v-else :size="17" />
+          <span>保存经期记录</span>
+        </button>
+      </article>
+    </section>
+
     <section v-if="activeTab === 'finance'" class="view">
       <div class="summary-strip">
         <article class="mini-metric">
@@ -3433,9 +4395,31 @@ watch(
           <strong>{{ numberValue(financeOverview, "weekExpense") }}</strong>
         </article>
       </div>
-      <article class="form-card">
+
+      <article v-if="financeView === 'list'" class="list-card">
         <div class="section-title">
-          <h2>记一笔支出</h2>
+          <h2>支出记录</h2>
+          <button class="icon-button" type="button" aria-label="新增记账" title="新增记账" @click="startCreateFinanceRecord()">
+            <Plus :size="18" />
+          </button>
+        </div>
+        <p v-if="expenseRecords.length === 0" class="empty">还没有支出记录</p>
+        <div v-for="record in expenseRecords" :key="text(record, 'id')" class="feed-item feed-item-actions">
+          <span>{{ categoryName(text(record, "category") || "OTHER") }} · {{ text(record, "occurred_on") }}</span>
+          <p>{{ text(record, "title") }}：{{ text(record, "amount") }}</p>
+          <button class="text-button danger-button" type="button" @click="deleteFinanceRecord(numberValue(record, 'id'))">
+            <Trash2 :size="15" />
+            <span>删除</span>
+          </button>
+        </div>
+      </article>
+
+      <article v-else class="form-card">
+        <div class="section-title">
+          <button class="icon-button" type="button" aria-label="返回账本列表" title="返回账本列表" @click="financeView = 'list'">
+            <ArrowLeft :size="18" />
+          </button>
+          <h2>新增记账</h2>
           <WalletCards :size="18" />
         </div>
         <input v-model="financeDraft.title" placeholder="项目，如晚饭、花盆、洗衣液" />
@@ -3454,28 +4438,51 @@ watch(
           <span>保存支出</span>
         </button>
       </article>
-
-      <article class="list-card">
-        <div class="section-title">
-          <h2>支出记录</h2>
-          <span>{{ expenseRecords.length }}</span>
-        </div>
-        <p v-if="expenseRecords.length === 0" class="empty">还没有支出记录</p>
-        <div v-for="record in expenseRecords" :key="text(record, 'id')" class="feed-item feed-item-actions">
-          <span>{{ categoryName(text(record, "category") || "OTHER") }} · {{ text(record, "occurred_on") }}</span>
-          <p>{{ text(record, "title") }}：{{ text(record, "amount") }}</p>
-          <button class="text-button danger-button" type="button" @click="deleteFinanceRecord(numberValue(record, 'id'))">
-            <Trash2 :size="15" />
-            <span>删除</span>
-          </button>
-        </div>
-      </article>
     </section>
 
     <section v-if="activeTab === 'private'" class="view">
-      <article class="form-card">
+      <article v-if="privateView === 'list'" class="list-card">
         <div class="section-title">
-          <h2>私密空间</h2>
+          <h2>留言板</h2>
+          <button class="icon-button" type="button" aria-label="新增留言" title="新增留言" @click="startCreatePrivateMessage()">
+            <Plus :size="18" />
+          </button>
+        </div>
+        <p v-if="privateMessages.length === 0" class="empty">这里还很安静</p>
+        <div v-for="item in privateMessages" :key="text(item, 'id')" class="private-item">
+          <span>
+            {{ text(item, "message_date") || text(item, "created_at").slice(0, 10) }} · {{ visibilityLabel(text(item, "visibility")) }} ·
+            {{ memberName(text(item, "sender_member_id")) }}
+            <template v-if="text(item, 'receiver_member_id')"> 给 {{ memberName(text(item, "receiver_member_id")) }}</template>
+          </span>
+          <p>{{ text(item, "content") }}</p>
+          <div class="row-actions">
+            <button
+              v-if="text(item, 'sender_member_id') === String(currentUser.memberId ?? '')"
+              class="text-button"
+              type="button"
+              @click="startEditPrivateMessage(item)"
+            >
+              编辑
+            </button>
+            <button
+              v-if="text(item, 'receiver_member_id') === String(currentUser.memberId ?? '') && !text(item, 'read_at')"
+              class="text-button"
+              type="button"
+              @click="markPrivateMessageRead(numberValue(item, 'id'))"
+            >
+              标记已读
+            </button>
+          </div>
+        </div>
+      </article>
+
+      <article v-else-if="privateView === 'create'" class="form-card">
+        <div class="section-title">
+          <button class="icon-button" type="button" aria-label="返回留言板" title="返回留言板" @click="privateView = 'list'">
+            <ArrowLeft :size="18" />
+          </button>
+          <h2>新增留言</h2>
           <MessageSquare :size="18" />
         </div>
         <div class="inline-fields">
@@ -3490,6 +4497,7 @@ watch(
             </option>
           </select>
         </div>
+        <input v-model="privateDraft.messageDate" type="date" />
         <textarea v-model="privateDraft.content" rows="4" placeholder="写一句只属于这里的话" />
         <button class="secondary-button" :disabled="isSubmitting('private-create')" type="button" @click="submitPrivateMessage">
           <LoaderCircle v-if="isSubmitting('private-create')" class="spin" :size="17" />
@@ -3498,28 +4506,33 @@ watch(
         </button>
       </article>
 
-      <article class="list-card">
+      <article v-else class="form-card">
         <div class="section-title">
-          <h2>留言板</h2>
-          <span>{{ privateMessages.length }}</span>
-        </div>
-        <p v-if="privateMessages.length === 0" class="empty">这里还很安静</p>
-        <div v-for="item in privateMessages" :key="text(item, 'id')" class="private-item">
-          <span>
-            {{ visibilityLabel(text(item, "visibility")) }} ·
-            {{ memberName(text(item, "sender_member_id")) }}
-            <template v-if="text(item, 'receiver_member_id')"> 给 {{ memberName(text(item, "receiver_member_id")) }}</template>
-          </span>
-          <p>{{ text(item, "content") }}</p>
-          <button
-            v-if="text(item, 'receiver_member_id') === String(currentUser.memberId ?? '') && !text(item, 'read_at')"
-            class="text-button"
-            type="button"
-            @click="markPrivateMessageRead(numberValue(item, 'id'))"
-          >
-            标记已读
+          <button class="icon-button" type="button" aria-label="返回留言板" title="返回留言板" @click="privateView = 'list'">
+            <ArrowLeft :size="18" />
           </button>
+          <h2>编辑留言</h2>
+          <Pencil :size="18" />
         </div>
+        <div class="inline-fields">
+          <select v-model="privateEditDraft.visibility">
+            <option value="TO_PARTNER">悄悄话</option>
+            <option value="PRIVATE">只给自己</option>
+            <option value="SHARED">共同可见</option>
+          </select>
+          <select v-model="privateEditDraft.receiverMemberId" :disabled="privateEditDraft.visibility !== 'TO_PARTNER'">
+            <option v-for="member in otherMembers" :key="`edit-${text(member, 'id')}`" :value="text(member, 'id')">
+              {{ text(member, "display_name") }}
+            </option>
+          </select>
+        </div>
+        <input v-model="privateEditDraft.messageDate" type="date" />
+        <textarea v-model="privateEditDraft.content" rows="4" placeholder="写一句只属于这里的话" />
+        <button class="secondary-button" :disabled="isSubmitting('private-update')" type="button" @click="submitPrivateMessageEdit">
+          <LoaderCircle v-if="isSubmitting('private-update')" class="spin" :size="17" />
+          <Check v-else :size="17" />
+          <span>更新留言</span>
+        </button>
       </article>
     </section>
 
@@ -3534,7 +4547,13 @@ watch(
         <p v-if="albumPhotos.length === 0" class="empty">还没有时刻记录</p>
         <article v-for="entry in albumPhotos" :key="text(entry, 'id')" class="memory-item">
           <div class="memory-thumb">
-            <img v-if="text(entry, 'image_url')" :src="text(entry, 'image_url')" :alt="text(entry, 'title')" />
+            <img
+              v-if="text(entry, 'image_url')"
+              :src="text(entry, 'image_url')"
+              :alt="text(entry, 'title')"
+              loading="lazy"
+              decoding="async"
+            />
             <span v-else class="memory-thumb-placeholder">{{ memoryEntryTypeLabel(text(entry, "entry_type")) }}</span>
           </div>
           <div class="memory-copy">
@@ -4039,7 +5058,7 @@ watch(
     <section v-if="activeTab === 'profile'" class="view">
       <article class="profile-card">
         <span class="profile-avatar" :style="{ background: profileDraft.avatarUrl ? 'transparent' : profileDraft.avatarColor }">
-          <img v-if="profileDraft.avatarUrl" :src="profileDraft.avatarUrl" alt="头像" />
+          <img v-if="profileDraft.avatarUrl" :src="profileDraft.avatarUrl" alt="头像" loading="lazy" decoding="async" />
           <template v-else>{{ text(currentUser, "displayName").slice(0, 1) }}</template>
         </span>
         <div>
@@ -4141,7 +5160,13 @@ watch(
 
       <article v-for="member in familyMembers" :key="text(member, 'id')" class="member-card">
         <span class="avatar-dot" :style="{ background: text(member, 'avatar_url') ? 'transparent' : text(member, 'avatar_color') || '#7d8f68' }">
-          <img v-if="text(member, 'avatar_url')" :src="text(member, 'avatar_url')" :alt="text(member, 'display_name')" />
+          <img
+            v-if="text(member, 'avatar_url')"
+            :src="text(member, 'avatar_url')"
+            :alt="text(member, 'display_name')"
+            loading="lazy"
+            decoding="async"
+          />
         </span>
         <div>
           <strong>{{ text(member, "display_name") }}</strong>
@@ -4247,7 +5272,13 @@ watch(
             :class="{ active: text(pet, 'id') === selectedPetId }"
             @click="openPetDetail(text(pet, 'id'))"
           >
-            <img v-if="text(pet, 'avatar_url')" :src="text(pet, 'avatar_url')" :alt="text(pet, 'name')" />
+            <img
+              v-if="text(pet, 'avatar_url')"
+              :src="text(pet, 'avatar_url')"
+              :alt="text(pet, 'name')"
+              loading="lazy"
+              decoding="async"
+            />
             <span v-else class="pet-placeholder"><PawPrint :size="22" /></span>
             <div>
               <strong>{{ text(pet, "name") }}</strong>
@@ -4320,6 +5351,8 @@ watch(
             v-if="text(currentPet, 'avatar_url')"
             :src="text(currentPet, 'avatar_url')"
             :alt="text(currentPet, 'name')"
+            loading="lazy"
+            decoding="async"
           />
           <span v-else class="pet-placeholder pet-hero">
             <PawPrint :size="28" />
@@ -4409,7 +5442,7 @@ watch(
         <p v-if="petPhotos.length === 0" class="empty">还没有宠物照片</p>
         <div class="album-grid">
           <article v-for="photo in petPhotos" :key="text(photo, 'id')" class="photo-card">
-            <img :src="text(photo, 'image_url')" :alt="text(photo, 'description') || '宠物照片'" />
+            <img :src="text(photo, 'image_url')" :alt="text(photo, 'description') || '宠物照片'" loading="lazy" decoding="async" />
             <div>
               <strong>{{ formatDateTime(text(photo, "taken_on") || text(photo, "created_at")) }}</strong>
               <p>{{ text(photo, "description") || "未填写备注" }}</p>

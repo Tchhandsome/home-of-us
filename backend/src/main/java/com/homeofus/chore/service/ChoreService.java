@@ -10,6 +10,8 @@ import com.homeofus.common.time.TimeProvider;
 import com.homeofus.common.web.CurrentUser;
 import com.homeofus.common.web.CurrentUserProvider;
 import com.homeofus.reminder.service.ReminderService;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -57,10 +59,14 @@ public class ChoreService {
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         Long id = idGenerator.nextId();
         String taskScope = resolveTaskScope(request.getTaskScope());
-        Long assigneeId = resolveAssigneeId(taskScope, request.getAssigneeId(), currentUser.getMemberId());
+        List<Long> assigneeIds = resolveAssigneeIds(taskScope, request.getAssigneeId(), request.getAssigneeIds(),
+                currentUser.getMemberId());
+        Long assigneeId = firstAssigneeId(assigneeIds);
+        LocalDateTime now = timeProvider.now();
         LocalDateTime dueAt = parseDueAt(request.getDueAt());
         choreRepository.insert(id, DefaultFamily.FAMILY_ID, request, taskScope, currentUser.getMemberId(), assigneeId,
-                resolveTaskType(request.getTaskType()), dueAt, currentUser.getUserId(), timeProvider.now());
+                resolveTaskType(request.getTaskType()), dueAt, currentUser.getUserId(), now);
+        syncAssignees(id, assigneeIds, currentUser, now);
         // 待办不再进入提醒中心，但仍兜底清掉旧来源，避免历史脏数据继续显示。
         clearReminder(id);
         return Map.of("id", id);
@@ -86,11 +92,15 @@ public class ChoreService {
         ensureTaskExists(taskId);
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         String taskScope = resolveTaskScope(request.getTaskScope());
-        Long assigneeId = resolveAssigneeId(taskScope, request.getAssigneeId(), currentUser.getMemberId());
+        List<Long> assigneeIds = resolveAssigneeIds(taskScope, request.getAssigneeId(), request.getAssigneeIds(),
+                currentUser.getMemberId());
+        Long assigneeId = firstAssigneeId(assigneeIds);
+        LocalDateTime now = timeProvider.now();
         LocalDateTime dueAt = parseDueAt(request.getDueAt());
         int updated = choreRepository.update(DefaultFamily.FAMILY_ID, taskId, request, taskScope,
                 currentUser.getMemberId(), assigneeId, resolveTaskType(request.getTaskType()), dueAt,
-                currentUser.getUserId(), timeProvider.now());
+                currentUser.getUserId(), now);
+        syncAssignees(taskId, assigneeIds, currentUser, now);
         clearReminder(taskId);
         return Map.of("updated", updated);
     }
@@ -107,8 +117,10 @@ public class ChoreService {
             throw new BusinessException("CHORE_TASK_SCOPE_INVALID", "只有共享任务可以认领");
         }
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        LocalDateTime now = timeProvider.now();
+        ensureTaskAssignee(taskId, currentUser.getMemberId(), currentUser.getUserId(), now);
         int updated = choreRepository.claim(DefaultFamily.FAMILY_ID, taskId, currentUser.getMemberId(),
-                currentUser.getUserId(), timeProvider.now());
+                currentUser.getUserId(), now);
         return Map.of("updated", updated);
     }
 
@@ -119,10 +131,14 @@ public class ChoreService {
      * @return 更新结果
      */
     public Map<String, Object> complete(Long taskId) {
-        ensureTaskExists(taskId);
+        Map<String, Object> task = ensureTaskExists(taskId);
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        LocalDateTime now = timeProvider.now();
+        if (StringUtils.equals(textValue(task, "task_scope"), "SHARED")) {
+            ensureTaskAssignee(taskId, currentUser.getMemberId(), currentUser.getUserId(), now);
+        }
         int updated = choreRepository.complete(DefaultFamily.FAMILY_ID, taskId, currentUser.getMemberId(),
-                currentUser.getUserId(), timeProvider.now());
+                currentUser.getUserId(), now);
         clearReminder(taskId);
         return Map.of("updated", updated);
     }
@@ -158,11 +174,47 @@ public class ChoreService {
         return "PERSONAL";
     }
 
-    private Long resolveAssigneeId(String taskScope, Long assigneeId, Long currentMemberId) {
-        if (StringUtils.equals(taskScope, "PERSONAL")) {
-            return currentMemberId;
+    private void syncAssignees(Long taskId, List<Long> assigneeIds, CurrentUser currentUser, LocalDateTime now) {
+        choreRepository.clearAssignees(DefaultFamily.FAMILY_ID, taskId, currentUser.getUserId(), now);
+        assigneeIds.forEach(memberId -> ensureTaskAssignee(taskId, memberId, currentUser.getUserId(), now));
+        choreRepository.setPrimaryAssignee(DefaultFamily.FAMILY_ID, taskId, firstAssigneeId(assigneeIds),
+                currentUser.getUserId(), now);
+    }
+
+    private void ensureTaskAssignee(Long taskId, Long memberId, Long operatorId, LocalDateTime now) {
+        if (Objects.isNull(memberId)) {
+            return;
         }
-        return assigneeId;
+        int restored = choreRepository.restoreAssignee(DefaultFamily.FAMILY_ID, taskId, memberId, operatorId, now);
+        if (restored == 0) {
+            choreRepository.insertAssignee(idGenerator.nextId(), DefaultFamily.FAMILY_ID, taskId, memberId, operatorId,
+                    now);
+        }
+    }
+
+    private List<Long> resolveAssigneeIds(String taskScope, Long assigneeId, List<Long> assigneeIds,
+            Long currentMemberId) {
+        if (StringUtils.equals(taskScope, "PERSONAL")) {
+            return List.of(currentMemberId);
+        }
+        LinkedHashSet<Long> normalized = new LinkedHashSet<>();
+        if (Objects.nonNull(assigneeIds)) {
+            assigneeIds.stream()
+                    .filter(Objects::nonNull)
+                    .filter(memberId -> memberId > 0)
+                    .forEach(normalized::add);
+        }
+        if (Objects.nonNull(assigneeId) && assigneeId > 0) {
+            normalized.add(assigneeId);
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private Long firstAssigneeId(List<Long> assigneeIds) {
+        if (assigneeIds.isEmpty()) {
+            return null;
+        }
+        return assigneeIds.get(0);
     }
 
     private String resolveTaskType(String taskType) {
