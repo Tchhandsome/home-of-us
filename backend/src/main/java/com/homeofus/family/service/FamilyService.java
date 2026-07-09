@@ -14,14 +14,19 @@ import com.homeofus.common.web.CurrentUserProvider;
 import com.homeofus.family.dto.CreateFamilyMemberRequest;
 import com.homeofus.family.dto.UpdateHomeCardOrderRequest;
 import com.homeofus.family.dto.UpdateHomeViewModeRequest;
+import com.homeofus.family.dto.UpdatePlantCheckInRequest;
 import com.homeofus.family.dto.UpdateFamilyMemberRequest;
 import com.homeofus.family.repository.FamilyRepository;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
@@ -36,6 +41,10 @@ public class FamilyService {
     private static final String HOME_CARD_ORDER_KEY = "homeCardOrder";
 
     private static final String HOME_VIEW_MODE_KEY = "homeViewMode";
+
+    private static final String PLANT_CHECK_IN_DATES_KEY = "plantCheckInDates";
+
+    private static final int MAX_PLANT_CHECK_IN_HISTORY = 400;
 
     private static final List<String> DEFAULT_HOME_CARD_ORDER = List.of("todo", "plants", "care", "shopping",
             "finance", "reminders", "period", "members", "album", "pets", "votes", "inventory", "recipes",
@@ -172,6 +181,25 @@ public class FamilyService {
         return result;
     }
 
+    /**
+     * 更新当前成员花花签到日期。
+     *
+     * @param request 签到请求
+     * @return 更新结果
+     */
+    public Map<String, Object> updatePlantCheckIn(UpdatePlantCheckInRequest request) {
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        String checkInDate = normalizePlantCheckInDate(Objects.isNull(request) ? "" : request.getCheckInDate());
+        List<String> existingDates = findPlantCheckInDates(currentUser.getMemberId());
+        List<String> mergedDates = normalizePlantCheckInDates(existingDates, checkInDate);
+        familyRepository.saveMemberPreference(idGenerator.nextId(), DefaultFamily.FAMILY_ID, currentUser.getMemberId(),
+                PLANT_CHECK_IN_DATES_KEY, writeStringList(mergedDates), currentUser.getUserId(), timeProvider.now());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("updated", 1);
+        result.put(PLANT_CHECK_IN_DATES_KEY, mergedDates);
+        return result;
+    }
+
     private void ensureUsernameAvailable(String username, Long memberId) {
         if (StringUtils.isBlank(username)) {
             return;
@@ -199,6 +227,7 @@ public class FamilyService {
         Map<String, Object> preferences = new LinkedHashMap<>();
         preferences.put(HOME_CARD_ORDER_KEY, findHomeCardOrder(memberId));
         preferences.put(HOME_VIEW_MODE_KEY, findHomeViewMode(memberId));
+        preferences.put(PLANT_CHECK_IN_DATES_KEY, findPlantCheckInDates(memberId));
         return preferences;
     }
 
@@ -212,6 +241,12 @@ public class FamilyService {
         return familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, memberId, HOME_VIEW_MODE_KEY)
                 .map(this::normalizeHomeViewMode)
                 .orElse(DEFAULT_HOME_VIEW_MODE);
+    }
+
+    private List<String> findPlantCheckInDates(Long memberId) {
+        return familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, memberId, PLANT_CHECK_IN_DATES_KEY)
+                .map(this::readPlantCheckInDateList)
+                .orElseGet(ArrayList::new);
     }
 
     private List<String> normalizeHomeCardOrder(List<String> rawCardKeys) {
@@ -241,6 +276,35 @@ public class FamilyService {
         return DEFAULT_HOME_VIEW_MODE;
     }
 
+    private String normalizePlantCheckInDate(String rawDate) {
+        if (StringUtils.isBlank(rawDate)) {
+            return timeProvider.today().toString();
+        }
+        try {
+            return LocalDate.parse(rawDate).toString();
+        } catch (DateTimeParseException exception) {
+            return timeProvider.today().toString();
+        }
+    }
+
+    private List<String> normalizePlantCheckInDates(List<String> rawDates, String extraDate) {
+        List<LocalDate> parsedDates = new ArrayList<>();
+        if (Objects.nonNull(rawDates)) {
+            rawDates.stream()
+                    .filter(StringUtils::isNotBlank)
+                    .forEach(value -> parsePlantCheckInDate(value).ifPresent(parsedDates::add));
+        }
+        parsePlantCheckInDate(extraDate).ifPresent(parsedDates::add);
+        List<LocalDate> normalizedDates = parsedDates.stream()
+                .distinct()
+                .sorted(Comparator.naturalOrder())
+                .toList();
+        int startIndex = Math.max(0, normalizedDates.size() - MAX_PLANT_CHECK_IN_HISTORY);
+        return normalizedDates.subList(startIndex, normalizedDates.size()).stream()
+                .map(LocalDate::toString)
+                .toList();
+    }
+
     private String writeStringList(List<String> values) {
         try {
             return objectMapper.writeValueAsString(values);
@@ -256,6 +320,27 @@ public class FamilyService {
             return normalizeHomeCardOrder(parsed);
         } catch (JsonProcessingException exception) {
             return new ArrayList<>(DEFAULT_HOME_CARD_ORDER);
+        }
+    }
+
+    private List<String> readPlantCheckInDateList(String value) {
+        try {
+            List<String> parsed = objectMapper.readValue(value, new TypeReference<List<String>>() {
+            });
+            return normalizePlantCheckInDates(parsed, "");
+        } catch (JsonProcessingException exception) {
+            return new ArrayList<>();
+        }
+    }
+
+    private Optional<LocalDate> parsePlantCheckInDate(String rawDate) {
+        if (StringUtils.isBlank(rawDate)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(LocalDate.parse(rawDate));
+        } catch (DateTimeParseException exception) {
+            return Optional.empty();
         }
     }
 }

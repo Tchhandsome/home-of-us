@@ -100,6 +100,7 @@ type InventoryViewKey = "list" | "create" | "edit";
 type VoteViewKey = "list" | "create";
 type RecipeViewKey = "list" | "create" | "edit" | "week" | "mealPlanCreate";
 type ShoppingViewKey = "list" | "create";
+type ReminderModuleKey = "plants" | "pets" | "memory" | "todo" | "period" | "inventory" | "recipes" | "manual" | "other";
 type CalendarEventType = "todo" | "reminder" | "care" | "memory" | "period";
 type CalendarEvent = {
   id: string;
@@ -118,6 +119,13 @@ type HomeCardDefinition = {
   description: string;
   tone: string;
   icon: Component;
+};
+type ReminderModuleGroup = {
+  key: ReminderModuleKey;
+  label: string;
+  description: string;
+  icon: Component;
+  reminders: AnyRow[];
 };
 type DrawerEntryKey = HomeCardKey | "flowers" | "familyMembers" | "coupleWorld" | "misc";
 type DrawerChildItem = {
@@ -342,13 +350,7 @@ const careDraft = ref({
   detail: "",
   nextCareAt: ""
 });
-const quickCareOpen = ref(false);
-const quickCareDraft = ref({
-  plantId: "",
-  careType: "WATER",
-  detail: "",
-  nextCareAt: ""
-});
+const plantCheckInDates = ref<string[]>([]);
 const plantAchievementVisible = ref(false);
 const plantAchievementKey = ref(0);
 const plantAchievementTitle = ref("守护天数 +1");
@@ -580,6 +582,63 @@ const periodRecordDraft = ref({
 
 const roleOptions = ["主人", "女主人", "男主人", "伴侣", "家庭成员", "家人", "宝宝", "宠物家长"];
 const weekDayLabels = ["一", "二", "三", "四", "五", "六", "日"];
+const reminderModuleOrder: ReminderModuleKey[] = ["plants", "pets", "memory", "todo", "period", "inventory", "recipes", "manual", "other"];
+const reminderModuleDefinitions: Record<ReminderModuleKey, Omit<ReminderModuleGroup, "reminders">> = {
+  plants: {
+    key: "plants",
+    label: "花花",
+    description: "花卉养护提醒",
+    icon: Leaf
+  },
+  pets: {
+    key: "pets",
+    label: "宠物",
+    description: "护理与医疗提醒",
+    icon: PawPrint
+  },
+  memory: {
+    key: "memory",
+    label: "时刻墙",
+    description: "纪念日、生日与周年提醒",
+    icon: Heart
+  },
+  todo: {
+    key: "todo",
+    label: "待办",
+    description: "家庭任务与个人事项",
+    icon: ClipboardList
+  },
+  period: {
+    key: "period",
+    label: "月经管理",
+    description: "周期相关提醒",
+    icon: Droplets
+  },
+  inventory: {
+    key: "inventory",
+    label: "库存与物资",
+    description: "库存不足与临期提醒",
+    icon: Package
+  },
+  recipes: {
+    key: "recipes",
+    label: "菜谱与餐单",
+    description: "餐单提醒",
+    icon: ChefHat
+  },
+  manual: {
+    key: "manual",
+    label: "手动提醒",
+    description: "你自己新增的提醒",
+    icon: Bell
+  },
+  other: {
+    key: "other",
+    label: "其他",
+    description: "暂未归类的提醒",
+    icon: Bell
+  }
+};
 const petQuickActionDefinitions: Record<
   PetQuickActionKey,
   { label: string; description: string; intervalDays: number; warnDays: number; icon: Component }
@@ -611,7 +670,54 @@ let messageTimer: number | undefined;
 let refreshTimer: number | undefined;
 let plantAchievementTimer: number | undefined;
 
+function reminderModuleKeyOfSourceType(sourceType: string): ReminderModuleKey {
+  if (sourceType === "PLANT_CARE") {
+    return "plants";
+  }
+  if (sourceType === "PET_CARE" || sourceType === "PET_MEDICAL") {
+    return "pets";
+  }
+  if (sourceType === "MEMORY_EVENT") {
+    return "memory";
+  }
+  if (sourceType === "TODO_TASK") {
+    return "todo";
+  }
+  if (sourceType === "PERIOD_TRACKER") {
+    return "period";
+  }
+  if (sourceType === "INVENTORY_LOW" || sourceType === "INVENTORY_EXPIRE") {
+    return "inventory";
+  }
+  if (sourceType === "MEAL_PLAN") {
+    return "recipes";
+  }
+  if (sourceType === "MANUAL" || !sourceType) {
+    return "manual";
+  }
+  return "other";
+}
+
 const pendingReminders = computed(() => reminders.value.filter((item) => text(item, "status") === "PENDING"));
+const reminderModuleGroups = computed<ReminderModuleGroup[]>(() => {
+  const buckets = reminderModuleOrder.reduce(
+    (result, key) => {
+      result[key] = [];
+      return result;
+    },
+    {} as Record<ReminderModuleKey, AnyRow[]>
+  );
+  pendingReminders.value.forEach((reminder) => {
+    const moduleKey = reminderModuleKeyOfSourceType(text(reminder, "source_type"));
+    buckets[moduleKey].push(reminder);
+  });
+  return reminderModuleOrder
+    .filter((key) => buckets[key].length > 0)
+    .map((key) => ({
+      ...reminderModuleDefinitions[key],
+      reminders: buckets[key]
+    }));
+});
 const pendingPlantCareReminders = computed(() =>
   [...pendingReminders.value]
     .filter((item) => text(item, "source_type") === "PLANT_CARE")
@@ -630,9 +736,6 @@ const periodRecords = computed<AnyRow[]>(() =>
 const periodPrediction = computed<AnyRow>(() => ((periodSummary.value.prediction as AnyRow) ?? {}) as AnyRow);
 const currentPlant = computed(() =>
   plants.value.find((plant) => text(plant, "id") === selectedPlantId.value)
-);
-const quickCarePlant = computed(() =>
-  plants.value.find((plant) => text(plant, "id") === quickCareDraft.value.plantId)
 );
 const nextPendingPlantCareReminder = computed<AnyRow | null>(() => pendingPlantCareReminders.value[0] ?? null);
 const careRecordsByPlantId = computed<Record<string, AnyRow[]>>(() => {
@@ -695,29 +798,31 @@ const todayDuePlantSummary = computed(() => {
   }
   return `今日需操作：${todayDuePlantNames.value.slice(0, 2).join("、")}等${todayDuePlantNames.value.length}盆`;
 });
-const plantCareDaysThisMonth = computed(() => {
-  const monthPrefix = getTodayDateValue().slice(0, 7);
-  const careDays = new Set<string>();
+const plantCareRecordedDates = computed(() => {
+  const dates = new Set<string>();
   allCareRecords.value.forEach((record) => {
     const careDate = text(record, "care_date");
-    if (careDate.startsWith(monthPrefix)) {
-      careDays.add(careDate);
+    if (careDate) {
+      dates.add(careDate);
     }
   });
-  return careDays.size;
+  return Array.from(dates).sort();
+});
+const effectivePlantCheckInDates = computed(() => {
+  const dates = new Set<string>(plantCheckInDates.value);
+  plantCareRecordedDates.value.forEach((date) => dates.add(date));
+  return Array.from(dates).sort();
+});
+const isPlantCheckedInToday = computed(() => effectivePlantCheckInDates.value.includes(getTodayDateValue()));
+const plantCareDaysThisMonth = computed(() => {
+  const monthPrefix = getTodayDateValue().slice(0, 7);
+  return effectivePlantCheckInDates.value.filter((date) => date.startsWith(monthPrefix)).length;
 });
 const previousPlantCareDays = computed(() => {
   const currentMonthStart = dateFromValue(getMonthStartValue()) ?? new Date();
   currentMonthStart.setMonth(currentMonthStart.getMonth() - 1, 1);
   const previousPrefix = `${currentMonthStart.getFullYear()}-${`${currentMonthStart.getMonth() + 1}`.padStart(2, "0")}`;
-  const careDays = new Set<string>();
-  allCareRecords.value.forEach((record) => {
-    const careDate = text(record, "care_date");
-    if (careDate.startsWith(previousPrefix)) {
-      careDays.add(careDate);
-    }
-  });
-  return careDays.size;
+  return effectivePlantCheckInDates.value.filter((date) => date.startsWith(previousPrefix)).length;
 });
 const plantCareMonthTotalDays = computed(() => {
   const todayDate = new Date();
@@ -736,8 +841,7 @@ const plantCareDeltaLabel = computed(() => {
 const plantTrendDays = computed<PlantTrendDay[]>(() => {
   const monthPrefix = getTodayDateValue().slice(0, 7);
   const activeDays = new Set<number>();
-  allCareRecords.value.forEach((record) => {
-    const careDate = text(record, "care_date");
+  effectivePlantCheckInDates.value.forEach((careDate) => {
     if (!careDate.startsWith(monthPrefix)) {
       return;
     }
@@ -778,6 +882,9 @@ const plantOverviewSummary = computed(() => {
   }
   if (pendingPlantCareReminders.value.length > 0) {
     return `还有 ${pendingPlantCareReminders.value.length} 条待养护`;
+  }
+  if (isPlantCheckedInToday.value) {
+    return "今天已经照顾过花花了";
   }
   if (plants.value.length > 0) {
     return `当前已整理 ${plants.value.length} 盆花花`;
@@ -1337,6 +1444,18 @@ function readHomeViewMode(data: AnyRow): HomeViewMode {
   return normalizeHomeViewMode(String(preferences?.homeViewMode ?? ""));
 }
 
+function readPlantCheckInDates(data: AnyRow): string[] {
+  const preferences = data.preferences as AnyRow | undefined;
+  const checkInDates = preferences?.plantCheckInDates;
+  if (!Array.isArray(checkInDates)) {
+    return [];
+  }
+  return checkInDates
+    .map((item) => String(item))
+    .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item))
+    .sort();
+}
+
 function isDrawerEntryKey(value: string): value is DrawerEntryKey {
   return value === "flowers" || value === "familyMembers" || value === "coupleWorld" || value === "misc" || isHomeCardKey(value);
 }
@@ -1473,14 +1592,6 @@ function plantStatusTag(plant: AnyRow): PlantStatusTag | null {
     text: `${diff}天后需养护`,
     tone: "due"
   };
-}
-
-function resolveQuickCareDetail(draft: { careType: string; detail: string }): string {
-  const trimmedDetail = draft.detail.trim();
-  if (trimmedDetail) {
-    return trimmedDetail;
-  }
-  return `今日完成${careTypeLabel(draft.careType)}签到`;
 }
 
 function resolvePlantAchievementContent(previousDays: number, currentDays: number): PlantAchievementContent {
@@ -2245,15 +2356,6 @@ function resetCareDraft(plantId = "") {
   careDraft.value.nextCareAt = "";
 }
 
-function resetQuickCareDraft(plantId = "") {
-  quickCareDraft.value = {
-    plantId,
-    careType: "WATER",
-    detail: "",
-    nextCareAt: ""
-  };
-}
-
 function syncPlantEditDraft(plant: AnyRow) {
   plantEditDraft.value = {
     id: text(plant, "id"),
@@ -2500,7 +2602,6 @@ function triggerPlantAchievement(content: PlantAchievementContent) {
 
 function openTab(tab: TabKey) {
   activeTab.value = tab;
-  quickCareOpen.value = false;
   petQuickActionOpen.value = false;
   petWeightOpen.value = false;
   if (tab === "todo") {
@@ -2549,7 +2650,6 @@ function openTab(tab: TabKey) {
 }
 
 function goHome() {
-  quickCareOpen.value = false;
   petQuickActionOpen.value = false;
   petWeightOpen.value = false;
   activeTab.value = "today";
@@ -2725,11 +2825,24 @@ function startCreateCareRecord() {
   careView.value = "create";
 }
 
-function startQuickCare(plant: AnyRow) {
-  const plantId = text(plant, "id");
-  selectedPlantId.value = plantId;
-  resetQuickCareDraft(plantId);
-  quickCareOpen.value = true;
+async function submitPlantCheckIn() {
+  if (plants.value.length === 0) {
+    showMessage("请先新增花卉档案，再来签到", "error");
+    return;
+  }
+  if (isPlantCheckedInToday.value) {
+    showMessage("今天已经签到过了", "info");
+    return;
+  }
+  await executeAction("plant-check-in", "花花签到失败", async () => {
+    const previousCareDays = plantCareDaysThisMonth.value;
+    await api.updatePlantCheckIn({
+      checkInDate: getTodayDateValue()
+    });
+    await loadAll({ silent: true });
+    triggerPlantAchievement(resolvePlantAchievementContent(previousCareDays, plantCareDaysThisMonth.value));
+    showMessage("今日签到成功");
+  });
 }
 
 function startCreateShopping() {
@@ -3051,6 +3164,7 @@ function resetDataState() {
   petMedicalRecords.value = [];
   petCareRecords.value = [];
   petWeightRecords.value = [];
+  plantCheckInDates.value = [];
   selectedTodoId.value = "";
   selectedPlantId.value = "";
   selectedMemoryId.value = "";
@@ -3059,13 +3173,11 @@ function resetDataState() {
   selectedRecipeId.value = "";
   selectedPetId.value = "";
   visibleMonth.value = getMonthStartValue();
-  quickCareOpen.value = false;
   petQuickActionOpen.value = false;
   petWeightOpen.value = false;
   plantAchievementVisible.value = false;
   plantAchievementTitle.value = "守护天数 +1";
   plantAchievementSubtitle.value = "今天也把花花照顾得很好";
-  resetQuickCareDraft();
   resetPetQuickActionDraft();
   resetPetWeightDraft();
   resetCareDraft();
@@ -3251,6 +3363,7 @@ async function loadAll(options: { silent?: boolean } = {}) {
     family.value = familyData;
     applyHomeCardOrder(readHomeCardOrder(familyData));
     applyHomeViewMode(readHomeViewMode(familyData));
+    plantCheckInDates.value = readPlantCheckInDates(familyData);
     todoTasks.value = choreData;
     reminders.value = reminderData;
     plants.value = plantData;
@@ -3890,17 +4003,13 @@ async function saveCareRecord(
   plantId: number,
   draft: { careType: string; detail: string; nextCareAt: string },
   actionName: string,
-  successMessage: string,
-  options: {
-    allowEmptyDetail?: boolean;
-    autoDetail?: string;
-  } = {}
+  successMessage: string
 ) {
   if (!Number.isFinite(plantId) || plantId <= 0) {
     showMessage("请先选择花卉", "error");
     return false;
   }
-  const detail = draft.detail.trim() || (options.allowEmptyDetail ? options.autoDetail || "" : "");
+  const detail = draft.detail.trim();
   if (!detail) {
     showMessage("请先填写养护内容", "error");
     return false;
@@ -3932,19 +4041,6 @@ async function submitCareRecord() {
   }
   resetCareDraft(String(plantId));
   careView.value = "list";
-}
-
-async function submitQuickCareRecord() {
-  const plantId = Number(quickCareDraft.value.plantId);
-  const saved = await saveCareRecord(plantId, quickCareDraft.value, `care-quick-${plantId}`, "今日养护已签到", {
-    allowEmptyDetail: true,
-    autoDetail: resolveQuickCareDetail(quickCareDraft.value)
-  });
-  if (!saved) {
-    return;
-  }
-  resetQuickCareDraft(String(plantId));
-  quickCareOpen.value = false;
 }
 
 async function deleteCareRecord(id: number) {
@@ -4670,21 +4766,21 @@ watch(
 
     <section v-if="activeTab === 'today'" class="view home-view">
       <div class="summary-strip home-summary-strip">
-        <article class="mini-metric">
+        <button class="mini-metric mini-metric-button" type="button" aria-label="打开待办页面" @click="openTab('todo')">
           <span>待办</span>
           <strong>{{ openTodoTasks.length }}</strong>
           <small>{{ myTodoTasks.length }} 条是我自己要处理的</small>
-        </article>
-        <article class="mini-metric">
+        </button>
+        <button class="mini-metric mini-metric-button" type="button" aria-label="打开提醒页面" @click="openTab('reminders')">
           <span>提醒</span>
           <strong>{{ pendingReminders.length }}</strong>
           <small>{{ pendingPlantCareReminders.length }} 条和花花养护有关</small>
-        </article>
-        <article class="mini-metric">
+        </button>
+        <button class="mini-metric mini-metric-button" type="button" aria-label="打开记账页面" @click="openTab('finance')">
           <span>本月支出</span>
           <strong>{{ numberValue(financeOverview, "monthExpense") }}</strong>
           <small>本周 {{ numberValue(financeOverview, "weekExpense") }}</small>
-        </article>
+        </button>
       </div>
 
       <div class="home-view-switch">
@@ -5052,10 +5148,22 @@ watch(
               <h2>本月养护天数 {{ plantCareDaysThisMonth }}/{{ plantCareMonthTotalDays }}</h2>
               <p>{{ plantOverviewSummary }}</p>
             </div>
-            <button class="secondary-button compact-button plant-add-button" type="button" @click="startCreatePlant()">
-              <Plus :size="17" />
-              <span>新增花卉</span>
-            </button>
+            <div class="plant-dashboard-actions">
+              <button
+                :class="['secondary-button', 'compact-button', 'plant-sign-button', { 'is-signed': isPlantCheckedInToday }]"
+                type="button"
+                :disabled="plants.length === 0 || isSubmitting('plant-check-in')"
+                @click="submitPlantCheckIn()"
+              >
+                <LoaderCircle v-if="isSubmitting('plant-check-in')" class="spin" :size="17" />
+                <Check v-else :size="17" />
+                <span>{{ isPlantCheckedInToday ? "今日已签到" : "今日签到" }}</span>
+              </button>
+              <button class="secondary-button compact-button plant-add-button" type="button" @click="startCreatePlant()">
+                <Plus :size="17" />
+                <span>新增花卉</span>
+              </button>
+            </div>
           </div>
           <div class="summary-strip plant-summary-strip">
             <article class="mini-metric">
@@ -5066,7 +5174,7 @@ watch(
             <article class="mini-metric">
               <span>本月签到</span>
               <strong>{{ plantCareDaysThisMonth }}/{{ plantCareMonthTotalDays }}</strong>
-              <small>{{ plantCareDaysThisMonth > 0 ? "每次签到都算一次照顾成功" : "今天开始给花花打卡吧" }}</small>
+              <small>{{ plantCareDaysThisMonth > 0 ? "手动签到或真实养护都会算一次照顾成功" : "今天开始给花花打卡吧" }}</small>
             </article>
             <article class="mini-metric">
               <span>较上月</span>
@@ -5156,10 +5264,6 @@ watch(
               </button>
             </div>
           </div>
-          <button class="secondary-button compact-button plant-quick-button" type="button" @click.stop="startQuickCare(plant)">
-            <Check :size="16" />
-            <span>今日完成养护</span>
-          </button>
         </article>
       </template>
 
@@ -5448,32 +5552,49 @@ watch(
           </button>
         </div>
         <p v-if="pendingReminders.length === 0" class="empty">暂时没有待处理提醒</p>
-        <article v-for="reminder in pendingReminders" :key="text(reminder, 'id')" class="reminder-row">
-          <div>
-            <strong>{{ text(reminder, "title") }}</strong>
-            <p>{{ formatDateTime(text(reminder, "due_at")) }}</p>
-          </div>
-          <div class="row-actions">
-            <button
-              class="icon-button"
-              type="button"
-              aria-label="完成提醒"
-              title="完成提醒"
-              @click="completeReminder(numberValue(reminder, 'id'))"
-            >
-              <Check :size="18" />
-            </button>
-            <button
-              class="icon-button danger-icon-button"
-              type="button"
-              aria-label="删除提醒"
-              title="删除提醒"
-              @click="deleteReminder(numberValue(reminder, 'id'))"
-            >
-              <Trash2 :size="17" />
-            </button>
-          </div>
-        </article>
+        <div v-else class="reminder-group-list">
+          <section v-for="group in reminderModuleGroups" :key="group.key" class="subsection reminder-module-group">
+            <div class="reminder-group-head">
+              <div class="reminder-group-title">
+                <span class="reminder-group-icon">
+                  <component :is="group.icon" :size="16" />
+                </span>
+                <div class="reminder-group-copy">
+                  <strong>{{ group.label }}</strong>
+                  <small>{{ group.description }}</small>
+                </div>
+              </div>
+              <span class="reminder-group-count">{{ group.reminders.length }}</span>
+            </div>
+            <article v-for="reminder in group.reminders" :key="text(reminder, 'id')" class="reminder-row">
+              <div class="reminder-copy">
+                <strong>{{ text(reminder, "title") }}</strong>
+                <p>{{ formatDateTime(text(reminder, "due_at")) }} · {{ relativeDaysLabel(text(reminder, "due_at")) }}</p>
+                <small v-if="text(reminder, 'description')">{{ text(reminder, "description") }}</small>
+              </div>
+              <div class="row-actions">
+                <button
+                  class="icon-button"
+                  type="button"
+                  aria-label="完成提醒"
+                  title="完成提醒"
+                  @click="completeReminder(numberValue(reminder, 'id'))"
+                >
+                  <Check :size="18" />
+                </button>
+                <button
+                  class="icon-button danger-icon-button"
+                  type="button"
+                  aria-label="删除提醒"
+                  title="删除提醒"
+                  @click="deleteReminder(numberValue(reminder, 'id'))"
+                >
+                  <Trash2 :size="17" />
+                </button>
+              </div>
+            </article>
+          </section>
+        </div>
       </article>
 
       <article v-else class="form-card">
@@ -6853,39 +6974,6 @@ watch(
           <span>保存医疗记录</span>
         </button>
       </article>
-    </section>
-    <div v-if="quickCareOpen" class="drawer-backdrop" @click="quickCareOpen = false" />
-    <section v-if="quickCareOpen" class="quick-care-sheet">
-      <div class="section-title">
-        <div>
-          <p class="eyebrow">养护签到</p>
-          <h2>{{ text(quickCarePlant ?? {}, "name") || "今日完成养护" }}</h2>
-        </div>
-        <button class="icon-button" type="button" aria-label="关闭快捷养护" title="关闭快捷养护" @click="quickCareOpen = false">
-          <ArrowLeft :size="18" />
-        </button>
-      </div>
-      <div class="inline-fields">
-        <div class="field-stack">
-          <span class="field-label">养护类型</span>
-          <select v-model="quickCareDraft.careType">
-            <option value="WATER">浇水</option>
-            <option value="FERTILIZE">施肥</option>
-            <option value="PRUNE">修剪</option>
-            <option value="OBSERVE">观察</option>
-          </select>
-        </div>
-        <div class="field-stack">
-          <span class="field-label">下次养护时间</span>
-          <input v-model="quickCareDraft.nextCareAt" type="datetime-local" />
-        </div>
-      </div>
-      <textarea v-model="quickCareDraft.detail" rows="3" placeholder="可选：补充今天做了什么，或者直接签到完成" />
-      <button class="secondary-button" :disabled="isSubmitting(`care-quick-${quickCareDraft.plantId}`)" type="button" @click="submitQuickCareRecord">
-        <LoaderCircle v-if="isSubmitting(`care-quick-${quickCareDraft.plantId}`)" class="spin" :size="17" />
-        <Check v-else :size="17" />
-        <span>签到并完成</span>
-      </button>
     </section>
     <transition name="achievement-pop">
       <div v-if="plantAchievementVisible" :key="plantAchievementKey" class="plant-achievement-pop">

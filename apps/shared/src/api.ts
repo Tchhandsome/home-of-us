@@ -105,6 +105,10 @@ export type UpdateHomeViewModePayload = {
   viewMode: string;
 };
 
+export type UpdatePlantCheckInPayload = {
+  checkInDate?: string;
+};
+
 export type CreatePrivateMessagePayload = {
   content: string;
   visibility?: string;
@@ -341,6 +345,11 @@ export const api = {
     }),
   updateHomeViewMode: (payload: UpdateHomeViewModePayload) =>
     request<AnyRow>("/families/default/preferences/home-view-mode", {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
+  updatePlantCheckIn: (payload: UpdatePlantCheckInPayload = {}) =>
+    request<AnyRow>("/families/default/preferences/plant-check-in", {
       method: "PATCH",
       body: JSON.stringify(payload)
     }),

@@ -472,6 +472,31 @@ svg {
   min-height: 78px;
 }
 
+.mini-metric-button {
+  width: 100%;
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.mini-metric-button:active {
+  transform: scale(0.985);
+}
+
+.mini-metric-button:hover,
+.mini-metric-button:focus-visible {
+  border-color: rgba(10, 132, 255, 0.22);
+  box-shadow: 0 14px 26px rgba(10, 132, 255, 0.1);
+  background: rgba(248, 250, 252, 0.98);
+}
+
 .home-view-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1059,6 +1084,79 @@ select {
   border-top: 0.5px solid rgba(60, 60, 67, 0.13);
 }
 
+.reminder-group-list {
+  display: grid;
+  gap: 10px;
+}
+
+.reminder-module-group {
+  gap: 10px;
+  margin-top: 0;
+  padding-top: 12px;
+}
+
+.reminder-module-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.reminder-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reminder-group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.reminder-group-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 12px;
+  background: rgba(10, 132, 255, 0.08);
+  color: #0a84ff;
+  box-shadow: inset 0 0 0 0.5px rgba(10, 132, 255, 0.12);
+}
+
+.reminder-group-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.reminder-group-copy strong {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.reminder-group-copy small {
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.reminder-group-count {
+  flex: 0 0 auto;
+  min-width: 28px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: #111827;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
 .module-jump-card {
   gap: 4px;
   padding: 6px 0;
@@ -1251,6 +1349,18 @@ select {
   line-height: 1.3;
 }
 
+.reminder-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.reminder-copy small {
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .shopping-card p {
   margin-top: 3px;
   color: #6b7280;
@@ -1302,8 +1412,7 @@ select {
   grid-template-columns: 72px minmax(0, 1fr);
   grid-template-areas:
     "cover copy"
-    "cover side"
-    "cover quick";
+    "cover side";
   align-items: start;
   row-gap: 10px;
 }
@@ -1343,15 +1452,6 @@ select {
   font-size: 12px;
   font-weight: 750;
   white-space: nowrap;
-}
-
-.plant-quick-button {
-  grid-area: quick;
-  justify-self: start;
-  min-height: 40px;
-  padding: 0 14px;
-  background: rgba(52, 199, 89, 0.12);
-  color: #047857;
 }
 
 .plant-cover {
@@ -1459,6 +1559,30 @@ select {
 
 .plant-add-button {
   white-space: nowrap;
+}
+
+.plant-dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.plant-sign-button {
+  background: linear-gradient(135deg, #34c759, #1f9d47);
+  color: #ffffff;
+  box-shadow: 0 12px 22px rgba(52, 199, 89, 0.2);
+}
+
+.plant-sign-button.is-signed {
+  background: rgba(52, 199, 89, 0.14);
+  color: #047857;
+  box-shadow: inset 0 0 0 0.5px rgba(52, 199, 89, 0.18);
+}
+
+.plant-sign-button:disabled {
+  opacity: 0.5;
+  box-shadow: none;
 }
 
 .plant-trend-card {

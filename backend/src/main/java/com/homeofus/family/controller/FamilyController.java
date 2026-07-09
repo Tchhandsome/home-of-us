@@ -3,6 +3,7 @@ package com.homeofus.family.controller;
 import com.homeofus.common.api.ApiResponse;
 import com.homeofus.family.dto.CreateFamilyMemberRequest;
 import com.homeofus.family.dto.UpdateHomeCardOrderRequest;
+import com.homeofus.family.dto.UpdatePlantCheckInRequest;
 import com.homeofus.family.dto.UpdateHomeViewModeRequest;
 import com.homeofus.family.dto.UpdateFamilyMemberRequest;
 import com.homeofus.family.service.FamilyService;
@@ -85,5 +86,16 @@ public class FamilyController {
     @PatchMapping("/default/preferences/home-view-mode")
     public ApiResponse<Map<String, Object>> updateHomeViewMode(@RequestBody UpdateHomeViewModeRequest request) {
         return ApiResponse.ok(familyService.updateHomeViewMode(request));
+    }
+
+    /**
+     * 更新当前登录成员的花花签到日期。
+     *
+     * @param request 签到请求
+     * @return 更新结果
+     */
+    @PatchMapping("/default/preferences/plant-check-in")
+    public ApiResponse<Map<String, Object>> updatePlantCheckIn(@RequestBody UpdatePlantCheckInRequest request) {
+        return ApiResponse.ok(familyService.updatePlantCheckIn(request));
     }
 }
