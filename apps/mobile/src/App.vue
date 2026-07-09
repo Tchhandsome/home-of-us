@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   Bell,
   BookOpen,
+  CalendarDays,
   Camera,
   ChefHat,
   Check,
@@ -25,6 +26,7 @@ import {
   Home,
   ImagePlus,
   Leaf,
+  LayoutGrid,
   Lock,
   LogOut,
   LoaderCircle,
@@ -66,6 +68,7 @@ type TabKey =
   | "recipes";
 
 type ToastType = "success" | "error" | "info";
+type HomeViewMode = "calendar" | "cards";
 type HomeCardKey =
   | "todo"
   | "plants"
@@ -273,8 +276,10 @@ const inventorySegment = ref<InventorySegmentKey>("items");
 const voteView = ref<VoteViewKey>("list");
 const recipeView = ref<RecipeViewKey>("list");
 const shoppingView = ref<ShoppingViewKey>("list");
+const homeViewMode = ref<HomeViewMode>("calendar");
 const homeCardOrder = ref<HomeCardKey[]>([...defaultHomeCardOrder]);
 const savedHomeCardOrder = ref<HomeCardKey[]>([...defaultHomeCardOrder]);
+const savedHomeViewMode = ref<HomeViewMode>("calendar");
 const homeCardDraggingKey = ref<DrawerEntryKey | "">("");
 const actionKey = ref("");
 const selectedTodoId = ref("");
@@ -1143,6 +1148,16 @@ function applyHomeCardOrder(keys: string[]) {
   savedHomeCardOrder.value = [...normalized];
 }
 
+function normalizeHomeViewMode(value: string): HomeViewMode {
+  return value === "cards" ? "cards" : "calendar";
+}
+
+function applyHomeViewMode(value: string) {
+  const normalized = normalizeHomeViewMode(value);
+  homeViewMode.value = normalized;
+  savedHomeViewMode.value = normalized;
+}
+
 function sameHomeCardOrder(left: HomeCardKey[], right: HomeCardKey[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index]);
 }
@@ -1154,6 +1169,11 @@ function readHomeCardOrder(data: AnyRow): HomeCardKey[] {
     return [...defaultHomeCardOrder];
   }
   return normalizeHomeCardOrder(cardKeys.map((item) => String(item)));
+}
+
+function readHomeViewMode(data: AnyRow): HomeViewMode {
+  const preferences = data.preferences as AnyRow | undefined;
+  return normalizeHomeViewMode(String(preferences?.homeViewMode ?? ""));
 }
 
 function isDrawerEntryKey(value: string): value is DrawerEntryKey {
@@ -2658,6 +2678,23 @@ async function persistHomeCardOrder() {
   }
 }
 
+async function setHomeViewMode(mode: HomeViewMode) {
+  if (homeViewMode.value === mode) {
+    return;
+  }
+  const previousMode = savedHomeViewMode.value;
+  homeViewMode.value = mode;
+  try {
+    await api.updateHomeViewMode({
+      viewMode: mode
+    });
+    savedHomeViewMode.value = mode;
+  } catch (error) {
+    homeViewMode.value = previousMode;
+    handleRequestError(error, "首页模式保存失败");
+  }
+}
+
 function beginHomeCardDrag(cardKey: DrawerEntryKey, event: PointerEvent) {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return;
@@ -2799,6 +2836,8 @@ function resetDataState() {
   voteView.value = "list";
   recipeView.value = "list";
   shoppingView.value = "list";
+  homeViewMode.value = "calendar";
+  savedHomeViewMode.value = "calendar";
   petView.value = "list";
   profilePasswordVisible.value = false;
   profilePasswordHintVisible.value = false;
@@ -2964,6 +3003,7 @@ async function loadAll(options: { silent?: boolean } = {}) {
     today.value = todayData;
     family.value = familyData;
     applyHomeCardOrder(readHomeCardOrder(familyData));
+    applyHomeViewMode(readHomeViewMode(familyData));
     todoTasks.value = choreData;
     reminders.value = reminderData;
     plants.value = plantData;
@@ -4395,17 +4435,20 @@ watch(
             </div>
           </button>
           <div v-else class="drawer-group-shell">
-            <div class="drawer-group-head">
-              <span class="drawer-group-mark">
-                <component :is="entry.icon" :size="18" />
-              </span>
-              <div class="drawer-module-copy">
-                <div class="drawer-module-head">
-                  <strong>{{ entry.label }}</strong>
-                  <small>{{ entry.value }}</small>
+            <div class="drawer-group-top">
+              <div class="drawer-group-head">
+                <span class="drawer-group-mark">
+                  <component :is="entry.icon" :size="18" />
+                </span>
+                <div class="drawer-module-copy">
+                  <div class="drawer-module-head">
+                    <strong>{{ entry.label }}</strong>
+                    <small>{{ entry.value }}</small>
+                  </div>
+                  <span>{{ entry.description }}</span>
                 </div>
-                <span>{{ entry.description }}</span>
               </div>
+              <em class="drawer-group-hint">选择下面的入口</em>
             </div>
             <div class="drawer-group-children">
               <button
@@ -4435,96 +4478,190 @@ watch(
 
     <p v-if="message" :class="['toast', `toast-${messageType}`]">{{ message }}</p>
 
-    <section v-if="activeTab === 'today'" class="view">
-      <div class="summary-strip">
+    <section v-if="activeTab === 'today'" class="view home-view">
+      <div class="summary-strip home-summary-strip">
         <article class="mini-metric">
           <span>待办</span>
           <strong>{{ openTodoTasks.length }}</strong>
+          <small>{{ myTodoTasks.length }} 条是我自己要处理的</small>
         </article>
         <article class="mini-metric">
           <span>提醒</span>
           <strong>{{ pendingReminders.length }}</strong>
+          <small>{{ pendingPlantCareReminders.length }} 条和花花养护有关</small>
         </article>
         <article class="mini-metric">
           <span>本月支出</span>
           <strong>{{ numberValue(financeOverview, "monthExpense") }}</strong>
+          <small>本周 {{ numberValue(financeOverview, "weekExpense") }}</small>
         </article>
       </div>
 
-      <article class="list-card calendar-card">
-        <div class="section-title">
-          <button class="icon-button" type="button" aria-label="上个月" title="上个月" @click="openCalendarMonth(-1)">
-            <ArrowLeft :size="17" />
-          </button>
-          <h2>{{ visibleMonthLabel }}</h2>
-          <button class="icon-button" type="button" aria-label="下个月" title="下个月" @click="openCalendarMonth(1)">
-            <ArrowLeft class="calendar-next-icon" :size="17" />
-          </button>
-        </div>
-        <div class="calendar-grid calendar-weekdays">
-          <span v-for="label in weekDayLabels" :key="label">{{ label }}</span>
-        </div>
-        <div class="calendar-grid">
-          <button
-            v-for="cell in calendarCells"
-            :key="cell.date"
-            :class="[
-              'calendar-cell',
-              {
-                'is-outside': !cell.inMonth,
-                'is-today': cell.isToday,
-                'is-selected': cell.isSelected
-              }
-            ]"
-            type="button"
-            @click="selectCalendarDate(cell.date)"
-          >
-            <strong>{{ cell.day }}</strong>
-            <div class="calendar-dots">
-              <span
-                v-for="event in cell.events"
-                :key="event.id"
-                :class="['calendar-dot', `calendar-dot-${event.tone}`]"
-              />
-              <small v-if="cell.eventCount > 3">+{{ cell.eventCount - 3 }}</small>
-            </div>
-          </button>
-        </div>
-      </article>
-
-      <article class="list-card quick-add-card">
-        <div class="section-title">
-          <h2>当日待办</h2>
-          <span>{{ selectedCalendarDate }}</span>
-        </div>
-        <div class="inline-fields">
-          <input v-model="calendarTodoDraft.title" placeholder="今天要做什么" />
-          <input v-model="calendarTodoDraft.time" type="time" />
-        </div>
-        <button class="secondary-button" :disabled="isSubmitting('calendar-todo-create')" type="button" @click="submitCalendarTodo()">
-          <LoaderCircle v-if="isSubmitting('calendar-todo-create')" class="spin" :size="17" />
-          <Plus v-else :size="17" />
-          <span>添加到这一天</span>
+      <div class="home-view-switch">
+        <button
+          :class="['home-view-button', { active: homeViewMode === 'calendar' }]"
+          type="button"
+          @click="setHomeViewMode('calendar')"
+        >
+          <CalendarDays :size="16" />
+          <span>日历模式</span>
         </button>
-      </article>
+        <button
+          :class="['home-view-button', { active: homeViewMode === 'cards' }]"
+          type="button"
+          @click="setHomeViewMode('cards')"
+        >
+          <LayoutGrid :size="16" />
+          <span>卡片模式</span>
+        </button>
+      </div>
 
-      <article class="list-card day-detail-card">
-        <div class="section-title">
-          <h2>当日详情</h2>
-          <span>{{ selectedDayEvents.length }}</span>
-        </div>
-        <p v-if="selectedDayEvents.length === 0" class="empty">这一天暂时没有安排</p>
-        <article v-for="event in selectedDayEvents" :key="event.id" class="calendar-event-row">
-          <span :class="['calendar-event-tag', `calendar-event-tag-${event.tone}`]">{{ event.label }}</span>
-          <div class="feed-main">
-            <p>{{ event.title }}</p>
-            <small>{{ event.detail }}</small>
+      <template v-if="homeViewMode === 'calendar'">
+        <article class="list-card calendar-card calendar-card-compact">
+          <div class="section-title">
+            <button class="icon-button" type="button" aria-label="上个月" title="上个月" @click="openCalendarMonth(-1)">
+              <ArrowLeft :size="17" />
+            </button>
+            <h2>{{ visibleMonthLabel }}</h2>
+            <button class="icon-button" type="button" aria-label="下个月" title="下个月" @click="openCalendarMonth(1)">
+              <ArrowLeft class="calendar-next-icon" :size="17" />
+            </button>
           </div>
-          <button class="text-button" type="button" @click="openTab(event.tab)">
-            查看
+          <div class="calendar-grid calendar-weekdays compact-weekdays">
+            <span v-for="label in weekDayLabels" :key="label">{{ label }}</span>
+          </div>
+          <div class="calendar-grid compact-calendar-grid">
+            <button
+              v-for="cell in calendarCells"
+              :key="cell.date"
+              :class="[
+                'calendar-cell',
+                'calendar-cell-compact',
+                {
+                  'is-outside': !cell.inMonth,
+                  'is-today': cell.isToday,
+                  'is-selected': cell.isSelected
+                }
+              ]"
+              type="button"
+              @click="selectCalendarDate(cell.date)"
+            >
+              <strong>{{ cell.day }}</strong>
+              <div class="calendar-dots">
+                <span
+                  v-for="event in cell.events"
+                  :key="event.id"
+                  :class="['calendar-dot', `calendar-dot-${event.tone}`]"
+                />
+                <small v-if="cell.eventCount > 3">+{{ cell.eventCount - 3 }}</small>
+              </div>
+            </button>
+          </div>
+        </article>
+
+        <article class="list-card quick-add-card">
+          <div class="section-title">
+            <h2>当日待办</h2>
+            <span>{{ selectedCalendarDate }}</span>
+          </div>
+          <div class="inline-fields">
+            <input v-model="calendarTodoDraft.title" placeholder="今天要做什么" />
+            <input v-model="calendarTodoDraft.time" type="time" />
+          </div>
+          <button class="secondary-button" :disabled="isSubmitting('calendar-todo-create')" type="button" @click="submitCalendarTodo()">
+            <LoaderCircle v-if="isSubmitting('calendar-todo-create')" class="spin" :size="17" />
+            <Plus v-else :size="17" />
+            <span>添加到这一天</span>
           </button>
         </article>
-      </article>
+
+        <article class="list-card day-detail-card">
+          <div class="section-title">
+            <h2>当日详情</h2>
+            <span>{{ selectedDayEvents.length }}</span>
+          </div>
+          <p v-if="selectedDayEvents.length === 0" class="empty">这一天暂时没有安排</p>
+          <article v-for="event in selectedDayEvents" :key="event.id" class="calendar-event-row">
+            <span :class="['calendar-event-tag', `calendar-event-tag-${event.tone}`]">{{ event.label }}</span>
+            <div class="feed-main">
+              <p>{{ event.title }}</p>
+              <small>{{ event.detail }}</small>
+            </div>
+            <button class="text-button" type="button" @click="openTab(event.tab)">
+              查看
+            </button>
+          </article>
+        </article>
+      </template>
+
+      <template v-else>
+        <button class="home-entry-card home-calendar-entry" type="button" @click="setHomeViewMode('calendar')">
+          <span class="home-entry-icon">
+            <CalendarDays :size="18" />
+          </span>
+          <div class="drawer-module-copy">
+            <div class="drawer-module-head">
+              <strong>日历</strong>
+              <small>{{ visibleMonthLabel }}</small>
+            </div>
+            <span>
+              <template v-if="selectedDayEvents[0]">
+                {{ selectedCalendarDate }} · {{ selectedDayEvents[0].title }}
+              </template>
+              <template v-else>{{ selectedCalendarDate }} 暂时没有安排</template>
+            </span>
+          </div>
+        </button>
+
+        <div class="home-module-grid">
+          <template v-for="entry in drawerEntries" :key="`home-${entry.key}`">
+            <button
+              v-if="entry.type === 'single'"
+              class="home-entry-card"
+              type="button"
+              @click="openTab(entry.children[0].key)"
+            >
+              <span class="home-entry-icon">
+                <component :is="entry.icon" :size="18" />
+              </span>
+              <div class="drawer-module-copy">
+                <div class="drawer-module-head">
+                  <strong>{{ entry.label }}</strong>
+                  <small>{{ entry.value }}</small>
+                </div>
+                <span>{{ entry.description }}</span>
+              </div>
+            </button>
+
+            <article v-else class="home-group-card">
+              <div class="home-group-toggle">
+                <span class="home-entry-icon">
+                  <component :is="entry.icon" :size="18" />
+                </span>
+                <div class="drawer-module-copy">
+                  <div class="drawer-module-head">
+                    <strong>{{ entry.label }}</strong>
+                    <small>{{ entry.value }}</small>
+                  </div>
+                  <span>{{ entry.description }}</span>
+                </div>
+              </div>
+              <div class="home-subcard-grid">
+                <button
+                  v-for="child in entry.children"
+                  :key="`${entry.key}-${child.key}`"
+                  class="drawer-child-button home-subcard-button"
+                  type="button"
+                  @click="openTab(child.key)"
+                >
+                  <span>{{ child.label }}</span>
+                  <small>{{ child.value }}</small>
+                </button>
+              </div>
+            </article>
+          </template>
+        </div>
+      </template>
     </section>
 
     <section v-if="activeTab === 'todo'" class="view">

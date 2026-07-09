@@ -16,6 +16,7 @@ import com.homeofus.common.jdbc.IdGenerator;
 import com.homeofus.common.time.TimeProvider;
 import com.homeofus.common.web.CurrentUser;
 import com.homeofus.common.web.CurrentUserProvider;
+import com.homeofus.family.dto.UpdateHomeViewModeRequest;
 import com.homeofus.family.dto.UpdateFamilyMemberRequest;
 import com.homeofus.family.repository.FamilyRepository;
 import java.time.LocalDateTime;
@@ -93,16 +94,39 @@ class FamilyServiceTest {
         when(familyRepository.findMembers(DefaultFamily.FAMILY_ID)).thenReturn(List.of(Map.of("id", 1001L)));
         when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "homeCardOrder"))
                 .thenReturn(Optional.of("[\"pets\",\"profile\"]"));
+        when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "homeViewMode"))
+                .thenReturn(Optional.of("cards"));
 
         Map<String, Object> overview = familyService.getDefaultFamilyOverview();
         Object preferencesObject = overview.get("preferences");
         Map<?, ?> preferences = assertInstanceOf(Map.class, preferencesObject);
         Object cardOrderObject = preferences.get("homeCardOrder");
         List<?> cardOrder = assertInstanceOf(List.class, cardOrderObject);
+        Object homeViewModeObject = preferences.get("homeViewMode");
 
         assertEquals("pets", cardOrder.get(0));
         assertEquals("profile", cardOrder.get(1));
-        assertEquals(13, cardOrder.size());
+        assertEquals(14, cardOrder.size());
         assertEquals("todo", cardOrder.get(2));
+        assertEquals("cards", homeViewModeObject);
+    }
+
+    @Test
+    void shouldPersistHomeViewModePreference() {
+        CurrentUser currentUser = new CurrentUser(9001L, DefaultFamily.FAMILY_ID, 1001L, "xiaotan", "小谭");
+        LocalDateTime now = LocalDateTime.of(2026, 7, 10, 8, 30);
+        UpdateHomeViewModeRequest request = new UpdateHomeViewModeRequest();
+        request.setViewMode("cards");
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(currentUser);
+        when(idGenerator.nextId()).thenReturn(5001L);
+        when(timeProvider.now()).thenReturn(now);
+
+        Map<String, Object> result = familyService.updateHomeViewMode(request);
+
+        assertEquals(1, result.get("updated"));
+        assertEquals("cards", result.get("homeViewMode"));
+        verify(familyRepository).saveMemberPreference(5001L, DefaultFamily.FAMILY_ID, 1001L, "homeViewMode", "cards",
+                9001L, now);
     }
 }

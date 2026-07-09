@@ -101,6 +101,10 @@ export type UpdateHomeCardOrderPayload = {
   cardKeys: string[];
 };
 
+export type UpdateHomeViewModePayload = {
+  viewMode: string;
+};
+
 export type CreatePrivateMessagePayload = {
   content: string;
   visibility?: string;
@@ -332,6 +336,11 @@ export const api = {
     }),
   updateHomeCardOrder: (payload: UpdateHomeCardOrderPayload) =>
     request<AnyRow>("/families/default/preferences/home-card-order", {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
+  updateHomeViewMode: (payload: UpdateHomeViewModePayload) =>
+    request<AnyRow>("/families/default/preferences/home-view-mode", {
       method: "PATCH",
       body: JSON.stringify(payload)
     }),

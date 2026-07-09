@@ -3,6 +3,7 @@ package com.homeofus.family.controller;
 import com.homeofus.common.api.ApiResponse;
 import com.homeofus.family.dto.CreateFamilyMemberRequest;
 import com.homeofus.family.dto.UpdateHomeCardOrderRequest;
+import com.homeofus.family.dto.UpdateHomeViewModeRequest;
 import com.homeofus.family.dto.UpdateFamilyMemberRequest;
 import com.homeofus.family.service.FamilyService;
 import java.util.Map;
@@ -73,5 +74,16 @@ public class FamilyController {
     @PatchMapping("/default/preferences/home-card-order")
     public ApiResponse<Map<String, Object>> updateHomeCardOrder(@RequestBody UpdateHomeCardOrderRequest request) {
         return ApiResponse.ok(familyService.updateHomeCardOrder(request));
+    }
+
+    /**
+     * 更新当前登录成员的首页展示模式。
+     *
+     * @param request 展示模式请求
+     * @return 更新结果
+     */
+    @PatchMapping("/default/preferences/home-view-mode")
+    public ApiResponse<Map<String, Object>> updateHomeViewMode(@RequestBody UpdateHomeViewModeRequest request) {
+        return ApiResponse.ok(familyService.updateHomeViewMode(request));
     }
 }

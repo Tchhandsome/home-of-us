@@ -13,6 +13,7 @@ import com.homeofus.common.web.CurrentUser;
 import com.homeofus.common.web.CurrentUserProvider;
 import com.homeofus.family.dto.CreateFamilyMemberRequest;
 import com.homeofus.family.dto.UpdateHomeCardOrderRequest;
+import com.homeofus.family.dto.UpdateHomeViewModeRequest;
 import com.homeofus.family.dto.UpdateFamilyMemberRequest;
 import com.homeofus.family.repository.FamilyRepository;
 import java.util.ArrayList;
@@ -34,9 +35,15 @@ public class FamilyService {
 
     private static final String HOME_CARD_ORDER_KEY = "homeCardOrder";
 
+    private static final String HOME_VIEW_MODE_KEY = "homeViewMode";
+
     private static final List<String> DEFAULT_HOME_CARD_ORDER = List.of("todo", "plants", "care", "shopping",
             "finance", "reminders", "period", "members", "album", "pets", "inventory", "recipes", "private",
             "profile");
+
+    private static final String DEFAULT_HOME_VIEW_MODE = "calendar";
+
+    private static final List<String> HOME_VIEW_MODES = List.of("calendar", "cards");
 
     private final FamilyRepository familyRepository;
 
@@ -148,6 +155,23 @@ public class FamilyService {
         return result;
     }
 
+    /**
+     * 更新当前成员首页展示模式。
+     *
+     * @param request 展示模式请求
+     * @return 更新结果
+     */
+    public Map<String, Object> updateHomeViewMode(UpdateHomeViewModeRequest request) {
+        CurrentUser currentUser = currentUserProvider.getCurrentUser();
+        String normalizedMode = normalizeHomeViewMode(Objects.isNull(request) ? "" : request.getViewMode());
+        familyRepository.saveMemberPreference(idGenerator.nextId(), DefaultFamily.FAMILY_ID, currentUser.getMemberId(),
+                HOME_VIEW_MODE_KEY, normalizedMode, currentUser.getUserId(), timeProvider.now());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("updated", 1);
+        result.put(HOME_VIEW_MODE_KEY, normalizedMode);
+        return result;
+    }
+
     private void ensureUsernameAvailable(String username, Long memberId) {
         if (StringUtils.isBlank(username)) {
             return;
@@ -174,6 +198,7 @@ public class FamilyService {
     private Map<String, Object> loadCurrentMemberPreferences(Long memberId) {
         Map<String, Object> preferences = new LinkedHashMap<>();
         preferences.put(HOME_CARD_ORDER_KEY, findHomeCardOrder(memberId));
+        preferences.put(HOME_VIEW_MODE_KEY, findHomeViewMode(memberId));
         return preferences;
     }
 
@@ -181,6 +206,12 @@ public class FamilyService {
         return familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, memberId, HOME_CARD_ORDER_KEY)
                 .map(this::readStringList)
                 .orElseGet(() -> new ArrayList<>(DEFAULT_HOME_CARD_ORDER));
+    }
+
+    private String findHomeViewMode(Long memberId) {
+        return familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, memberId, HOME_VIEW_MODE_KEY)
+                .map(this::normalizeHomeViewMode)
+                .orElse(DEFAULT_HOME_VIEW_MODE);
     }
 
     private List<String> normalizeHomeCardOrder(List<String> rawCardKeys) {
@@ -201,6 +232,13 @@ public class FamilyService {
             return "todo";
         }
         return rawCardKey;
+    }
+
+    private String normalizeHomeViewMode(String rawMode) {
+        if (HOME_VIEW_MODES.contains(rawMode)) {
+            return rawMode;
+        }
+        return DEFAULT_HOME_VIEW_MODE;
     }
 
     private String writeStringList(List<String> values) {
