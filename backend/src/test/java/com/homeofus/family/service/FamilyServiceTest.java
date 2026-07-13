@@ -100,6 +100,8 @@ class FamilyServiceTest {
                 .thenReturn(Optional.of("cards"));
         when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInDates"))
                 .thenReturn(Optional.of("[\"2026-07-09\"]"));
+        when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInEntries"))
+                .thenReturn(Optional.of("[{\"plantId\":3001,\"checkInDate\":\"2026-07-10\"}]"));
 
         Map<String, Object> overview = familyService.getDefaultFamilyOverview();
         Object preferencesObject = overview.get("preferences");
@@ -107,6 +109,9 @@ class FamilyServiceTest {
         Object cardOrderObject = preferences.get("homeCardOrder");
         List<?> cardOrder = assertInstanceOf(List.class, cardOrderObject);
         Object homeViewModeObject = preferences.get("homeViewMode");
+        Object checkInEntriesObject = preferences.get("plantCheckInEntries");
+        List<?> checkInEntries = assertInstanceOf(List.class, checkInEntriesObject);
+        Map<?, ?> firstCheckInEntry = assertInstanceOf(Map.class, checkInEntries.get(0));
 
         assertEquals("pets", cardOrder.get(0));
         assertEquals("profile", cardOrder.get(1));
@@ -114,7 +119,9 @@ class FamilyServiceTest {
         assertEquals("todo", cardOrder.get(2));
         assertEquals("votes", cardOrder.get(11));
         assertEquals("cards", homeViewModeObject);
-        assertEquals(List.of("2026-07-09"), preferences.get("plantCheckInDates"));
+        assertEquals(List.of("2026-07-09", "2026-07-10"), preferences.get("plantCheckInDates"));
+        assertEquals(3001L, ((Number) firstCheckInEntry.get("plantId")).longValue());
+        assertEquals("2026-07-10", firstCheckInEntry.get("checkInDate"));
     }
 
     @Test
@@ -129,6 +136,8 @@ class FamilyServiceTest {
         when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "homeViewMode"))
                 .thenReturn(Optional.empty());
         when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInDates"))
+                .thenReturn(Optional.empty());
+        when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInEntries"))
                 .thenReturn(Optional.empty());
 
         Map<String, Object> overview = familyService.getDefaultFamilyOverview();
@@ -170,6 +179,8 @@ class FamilyServiceTest {
         when(timeProvider.now()).thenReturn(now);
         when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInDates"))
                 .thenReturn(Optional.of("[\"2026-07-09\"]"));
+        when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInEntries"))
+                .thenReturn(Optional.empty());
 
         Map<String, Object> result = familyService.updatePlantCheckIn(request);
 
@@ -192,9 +203,41 @@ class FamilyServiceTest {
         when(timeProvider.today()).thenReturn(LocalDate.of(2026, 7, 10));
         when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInDates"))
                 .thenReturn(Optional.empty());
+        when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInEntries"))
+                .thenReturn(Optional.empty());
 
         Map<String, Object> result = familyService.updatePlantCheckIn(request);
 
         assertEquals(List.of("2026-07-10"), result.get("plantCheckInDates"));
+    }
+
+    @Test
+    void shouldPersistPlantCheckInEntryForSpecificPlant() {
+        CurrentUser currentUser = new CurrentUser(9001L, DefaultFamily.FAMILY_ID, 1001L, "xiaotan", "小谭");
+        LocalDateTime now = LocalDateTime.of(2026, 7, 10, 8, 30);
+        UpdatePlantCheckInRequest request = new UpdatePlantCheckInRequest();
+        request.setPlantId(3001L);
+        request.setCheckInDate("2026-07-10");
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(currentUser);
+        when(idGenerator.nextId()).thenReturn(5004L);
+        when(timeProvider.now()).thenReturn(now);
+        when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInDates"))
+                .thenReturn(Optional.of("[\"2026-07-09\"]"));
+        when(familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, 1001L, "plantCheckInEntries"))
+                .thenReturn(Optional.of("[{\"plantId\":3001,\"checkInDate\":\"2026-07-08\"}]"));
+
+        Map<String, Object> result = familyService.updatePlantCheckIn(request);
+        Object checkInEntriesObject = result.get("plantCheckInEntries");
+        List<?> checkInEntries = assertInstanceOf(List.class, checkInEntriesObject);
+        Map<?, ?> latestCheckInEntry = assertInstanceOf(Map.class, checkInEntries.get(1));
+
+        assertEquals(1, result.get("updated"));
+        assertEquals(List.of("2026-07-08", "2026-07-09", "2026-07-10"), result.get("plantCheckInDates"));
+        assertEquals(3001L, ((Number) latestCheckInEntry.get("plantId")).longValue());
+        assertEquals("2026-07-10", latestCheckInEntry.get("checkInDate"));
+        verify(familyRepository).saveMemberPreference(5004L, DefaultFamily.FAMILY_ID, 1001L, "plantCheckInEntries",
+                "[{\"plantId\":3001,\"checkInDate\":\"2026-07-08\"},{\"plantId\":3001,\"checkInDate\":\"2026-07-10\"}]",
+                9001L, now);
     }
 }

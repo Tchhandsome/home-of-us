@@ -44,7 +44,11 @@ public class FamilyService {
 
     private static final String PLANT_CHECK_IN_DATES_KEY = "plantCheckInDates";
 
+    private static final String PLANT_CHECK_IN_ENTRIES_KEY = "plantCheckInEntries";
+
     private static final int MAX_PLANT_CHECK_IN_HISTORY = 400;
+
+    private static final int MAX_PLANT_CHECK_IN_ENTRY_HISTORY = 800;
 
     private static final List<String> DEFAULT_HOME_CARD_ORDER = List.of("todo", "plants", "care", "shopping",
             "finance", "reminders", "period", "members", "album", "pets", "votes", "inventory", "recipes",
@@ -67,6 +71,9 @@ public class FamilyService {
     private final TimeProvider timeProvider;
 
     private final ObjectMapper objectMapper;
+
+    private record PlantCheckInEntryValue(Long plantId, String checkInDate) {
+    }
 
     public FamilyService(FamilyRepository familyRepository, AuthRepository authRepository, AuthService authService,
             CurrentUserProvider currentUserProvider, IdGenerator idGenerator, TimeProvider timeProvider,
@@ -190,12 +197,24 @@ public class FamilyService {
     public Map<String, Object> updatePlantCheckIn(UpdatePlantCheckInRequest request) {
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         String checkInDate = normalizePlantCheckInDate(Objects.isNull(request) ? "" : request.getCheckInDate());
-        List<String> existingDates = findPlantCheckInDates(currentUser.getMemberId());
-        List<String> mergedDates = normalizePlantCheckInDates(existingDates, checkInDate);
-        familyRepository.saveMemberPreference(idGenerator.nextId(), DefaultFamily.FAMILY_ID, currentUser.getMemberId(),
-                PLANT_CHECK_IN_DATES_KEY, writeStringList(mergedDates), currentUser.getUserId(), timeProvider.now());
+        Long plantId = Objects.isNull(request) ? null : normalizePlantCheckInPlantId(request.getPlantId());
+        List<String> legacyDates = findLegacyPlantCheckInDates(currentUser.getMemberId());
+        List<PlantCheckInEntryValue> existingEntries = findPlantCheckInEntries(currentUser.getMemberId());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("updated", 1);
+        if (Objects.nonNull(plantId)) {
+            List<PlantCheckInEntryValue> mergedEntries = normalizePlantCheckInEntries(existingEntries, plantId, checkInDate);
+            familyRepository.saveMemberPreference(idGenerator.nextId(), DefaultFamily.FAMILY_ID, currentUser.getMemberId(),
+                    PLANT_CHECK_IN_ENTRIES_KEY, writePlantCheckInEntryList(mergedEntries), currentUser.getUserId(),
+                    timeProvider.now());
+            result.put(PLANT_CHECK_IN_ENTRIES_KEY, toPlantCheckInEntryMaps(mergedEntries));
+            result.put(PLANT_CHECK_IN_DATES_KEY, mergePlantCheckInDates(legacyDates, mergedEntries));
+            return result;
+        }
+        List<String> mergedDates = normalizePlantCheckInDates(legacyDates, checkInDate);
+        familyRepository.saveMemberPreference(idGenerator.nextId(), DefaultFamily.FAMILY_ID, currentUser.getMemberId(),
+                PLANT_CHECK_IN_DATES_KEY, writeStringList(mergedDates), currentUser.getUserId(), timeProvider.now());
+        result.put(PLANT_CHECK_IN_ENTRIES_KEY, toPlantCheckInEntryMaps(existingEntries));
         result.put(PLANT_CHECK_IN_DATES_KEY, mergedDates);
         return result;
     }
@@ -224,10 +243,13 @@ public class FamilyService {
     }
 
     private Map<String, Object> loadCurrentMemberPreferences(Long memberId) {
+        List<String> legacyDates = findLegacyPlantCheckInDates(memberId);
+        List<PlantCheckInEntryValue> entries = findPlantCheckInEntries(memberId);
         Map<String, Object> preferences = new LinkedHashMap<>();
         preferences.put(HOME_CARD_ORDER_KEY, findHomeCardOrder(memberId));
         preferences.put(HOME_VIEW_MODE_KEY, findHomeViewMode(memberId));
-        preferences.put(PLANT_CHECK_IN_DATES_KEY, findPlantCheckInDates(memberId));
+        preferences.put(PLANT_CHECK_IN_DATES_KEY, mergePlantCheckInDates(legacyDates, entries));
+        preferences.put(PLANT_CHECK_IN_ENTRIES_KEY, toPlantCheckInEntryMaps(entries));
         return preferences;
     }
 
@@ -243,9 +265,15 @@ public class FamilyService {
                 .orElse(DEFAULT_HOME_VIEW_MODE);
     }
 
-    private List<String> findPlantCheckInDates(Long memberId) {
+    private List<String> findLegacyPlantCheckInDates(Long memberId) {
         return familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, memberId, PLANT_CHECK_IN_DATES_KEY)
                 .map(this::readPlantCheckInDateList)
+                .orElseGet(ArrayList::new);
+    }
+
+    private List<PlantCheckInEntryValue> findPlantCheckInEntries(Long memberId) {
+        return familyRepository.findMemberPreferenceValue(DefaultFamily.FAMILY_ID, memberId, PLANT_CHECK_IN_ENTRIES_KEY)
+                .map(this::readPlantCheckInEntryList)
                 .orElseGet(ArrayList::new);
     }
 
@@ -287,6 +315,13 @@ public class FamilyService {
         }
     }
 
+    private Long normalizePlantCheckInPlantId(Long rawPlantId) {
+        if (Objects.isNull(rawPlantId) || rawPlantId <= 0) {
+            return null;
+        }
+        return rawPlantId;
+    }
+
     private List<String> normalizePlantCheckInDates(List<String> rawDates, String extraDate) {
         List<LocalDate> parsedDates = new ArrayList<>();
         if (Objects.nonNull(rawDates)) {
@@ -305,12 +340,78 @@ public class FamilyService {
                 .toList();
     }
 
+    private List<PlantCheckInEntryValue> normalizePlantCheckInEntries(List<PlantCheckInEntryValue> rawEntries, Long extraPlantId,
+            String extraDate) {
+        Map<String, PlantCheckInEntryValue> normalized = new LinkedHashMap<>();
+        if (Objects.nonNull(rawEntries)) {
+            rawEntries.stream()
+                    .map(this::normalizePlantCheckInEntry)
+                    .flatMap(Optional::stream)
+                    .forEach(entry -> normalized.put(entry.plantId() + "-" + entry.checkInDate(), entry));
+        }
+        normalizePlantCheckInEntry(new PlantCheckInEntryValue(extraPlantId, extraDate))
+                .ifPresent(entry -> normalized.put(entry.plantId() + "-" + entry.checkInDate(), entry));
+        List<PlantCheckInEntryValue> sortedEntries = normalized.values().stream()
+                .sorted(Comparator.comparing(PlantCheckInEntryValue::checkInDate)
+                        .thenComparing(PlantCheckInEntryValue::plantId))
+                .toList();
+        int startIndex = Math.max(0, sortedEntries.size() - MAX_PLANT_CHECK_IN_ENTRY_HISTORY);
+        return sortedEntries.subList(startIndex, sortedEntries.size());
+    }
+
+    private Optional<PlantCheckInEntryValue> normalizePlantCheckInEntry(PlantCheckInEntryValue entry) {
+        if (Objects.isNull(entry)) {
+            return Optional.empty();
+        }
+        Long plantId = normalizePlantCheckInPlantId(entry.plantId());
+        Optional<LocalDate> checkInDate = parsePlantCheckInDate(entry.checkInDate());
+        if (Objects.isNull(plantId) || checkInDate.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new PlantCheckInEntryValue(plantId, checkInDate.get().toString()));
+    }
+
+    private List<String> mergePlantCheckInDates(List<String> legacyDates, List<PlantCheckInEntryValue> entries) {
+        List<String> mergedDates = new ArrayList<>();
+        if (Objects.nonNull(legacyDates)) {
+            mergedDates.addAll(legacyDates);
+        }
+        if (Objects.nonNull(entries)) {
+            entries.stream()
+                    .map(PlantCheckInEntryValue::checkInDate)
+                    .forEach(mergedDates::add);
+        }
+        return normalizePlantCheckInDates(mergedDates, "");
+    }
+
     private String writeStringList(List<String> values) {
         try {
             return objectMapper.writeValueAsString(values);
         } catch (JsonProcessingException exception) {
             throw new BusinessException("FAMILY_PREFERENCE_SERIALIZE_FAILED", "family.preference.serialize.failed");
         }
+    }
+
+    private String writePlantCheckInEntryList(List<PlantCheckInEntryValue> entries) {
+        try {
+            return objectMapper.writeValueAsString(toPlantCheckInEntryMaps(entries));
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException("FAMILY_PREFERENCE_SERIALIZE_FAILED", "family.preference.serialize.failed");
+        }
+    }
+
+    private List<Map<String, Object>> toPlantCheckInEntryMaps(List<PlantCheckInEntryValue> entries) {
+        if (Objects.isNull(entries) || entries.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return entries.stream()
+                .map(entry -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("plantId", entry.plantId());
+                    row.put("checkInDate", entry.checkInDate());
+                    return row;
+                })
+                .toList();
     }
 
     private List<String> readStringList(String value) {
@@ -330,6 +431,41 @@ public class FamilyService {
             return normalizePlantCheckInDates(parsed, "");
         } catch (JsonProcessingException exception) {
             return new ArrayList<>();
+        }
+    }
+
+    private List<PlantCheckInEntryValue> readPlantCheckInEntryList(String value) {
+        try {
+            List<Map<String, Object>> parsed = objectMapper.readValue(value, new TypeReference<List<Map<String, Object>>>() {
+            });
+            List<PlantCheckInEntryValue> rawEntries = parsed.stream()
+                    .map(this::parsePlantCheckInEntry)
+                    .flatMap(Optional::stream)
+                    .toList();
+            return normalizePlantCheckInEntries(rawEntries, null, "");
+        } catch (JsonProcessingException exception) {
+            return new ArrayList<>();
+        }
+    }
+
+    private Optional<PlantCheckInEntryValue> parsePlantCheckInEntry(Map<String, Object> row) {
+        if (Objects.isNull(row)) {
+            return Optional.empty();
+        }
+        Long plantId = parsePositiveLong(row.get("plantId"));
+        String checkInDate = Objects.toString(row.get("checkInDate"), "");
+        return normalizePlantCheckInEntry(new PlantCheckInEntryValue(plantId, checkInDate));
+    }
+
+    private Long parsePositiveLong(Object rawValue) {
+        if (Objects.isNull(rawValue)) {
+            return null;
+        }
+        try {
+            long parsed = Long.parseLong(String.valueOf(rawValue));
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException exception) {
+            return null;
         }
     }
 

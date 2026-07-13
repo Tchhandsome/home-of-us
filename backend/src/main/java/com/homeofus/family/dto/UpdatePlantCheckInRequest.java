@@ -12,5 +12,7 @@ import lombok.Setter;
 @Setter
 public class UpdatePlantCheckInRequest {
 
+    private Long plantId;
+
     private String checkInDate;
 }

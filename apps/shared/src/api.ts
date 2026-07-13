@@ -106,6 +106,7 @@ export type UpdateHomeViewModePayload = {
 };
 
 export type UpdatePlantCheckInPayload = {
+  plantId?: number;
   checkInDate?: string;
 };
 

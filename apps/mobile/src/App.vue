@@ -164,6 +164,10 @@ type PlantCareBadge = {
   label: string;
   active: boolean;
 };
+type PlantCheckInEntry = {
+  plantId: string;
+  checkInDate: string;
+};
 type PlantAchievementContent = {
   title: string;
   subtitle: string;
@@ -311,6 +315,7 @@ const homeCardDraggingKey = ref<DrawerEntryKey | "">("");
 const actionKey = ref("");
 const selectedTodoId = ref("");
 const selectedPlantId = ref("");
+const plantQuickCarePlantId = ref("");
 const selectedMemoryId = ref("");
 const selectedCalendarDate = ref(getTodayDateValue());
 const selectedInventoryId = ref("");
@@ -351,6 +356,7 @@ const careDraft = ref({
   nextCareAt: ""
 });
 const plantCheckInDates = ref<string[]>([]);
+const plantCheckInEntries = ref<PlantCheckInEntry[]>([]);
 const plantAchievementVisible = ref(false);
 const plantAchievementKey = ref(0);
 const plantAchievementTitle = ref("守护天数 +1");
@@ -737,20 +743,56 @@ const periodPrediction = computed<AnyRow>(() => ((periodSummary.value.prediction
 const currentPlant = computed(() =>
   plants.value.find((plant) => text(plant, "id") === selectedPlantId.value)
 );
+const quickCarePlant = computed(() =>
+  plants.value.find((plant) => text(plant, "id") === plantQuickCarePlantId.value)
+);
 const nextPendingPlantCareReminder = computed<AnyRow | null>(() => pendingPlantCareReminders.value[0] ?? null);
-const careRecordsByPlantId = computed<Record<string, AnyRow[]>>(() => {
-  const grouped: Record<string, AnyRow[]> = {};
+const plantCareRecordedDatesByPlantId = computed<Record<string, string[]>>(() => {
+  const grouped: Record<string, Set<string>> = {};
   allCareRecords.value.forEach((record) => {
     const plantId = text(record, "plant_id");
-    if (!plantId) {
+    const careDate = text(record, "care_date");
+    if (!plantId || !careDate) {
       return;
     }
     if (!grouped[plantId]) {
-      grouped[plantId] = [];
+      grouped[plantId] = new Set<string>();
     }
-    grouped[plantId].push(record);
+    grouped[plantId].add(careDate);
   });
-  return grouped;
+  return Object.fromEntries(
+    Object.entries(grouped).map(([plantId, dates]) => [plantId, Array.from(dates).sort()])
+  );
+});
+const manualPlantCheckInDatesByPlantId = computed<Record<string, string[]>>(() => {
+  const grouped: Record<string, Set<string>> = {};
+  plantCheckInEntries.value.forEach((entry) => {
+    if (!entry.plantId || !entry.checkInDate) {
+      return;
+    }
+    if (!grouped[entry.plantId]) {
+      grouped[entry.plantId] = new Set<string>();
+    }
+    grouped[entry.plantId].add(entry.checkInDate);
+  });
+  return Object.fromEntries(
+    Object.entries(grouped).map(([plantId, dates]) => [plantId, Array.from(dates).sort()])
+  );
+});
+const effectivePlantCheckInDatesByPlantId = computed<Record<string, string[]>>(() => {
+  const grouped: Record<string, Set<string>> = {};
+  Object.entries(plantCareRecordedDatesByPlantId.value).forEach(([plantId, dates]) => {
+    grouped[plantId] = new Set(dates);
+  });
+  Object.entries(manualPlantCheckInDatesByPlantId.value).forEach(([plantId, dates]) => {
+    if (!grouped[plantId]) {
+      grouped[plantId] = new Set<string>();
+    }
+    dates.forEach((date) => grouped[plantId].add(date));
+  });
+  return Object.fromEntries(
+    Object.entries(grouped).map(([plantId, dates]) => [plantId, Array.from(dates).sort()])
+  );
 });
 const careRecordById = computed<Record<string, AnyRow>>(() => {
   const lookup: Record<string, AnyRow> = {};
@@ -800,11 +842,8 @@ const todayDuePlantSummary = computed(() => {
 });
 const plantCareRecordedDates = computed(() => {
   const dates = new Set<string>();
-  allCareRecords.value.forEach((record) => {
-    const careDate = text(record, "care_date");
-    if (careDate) {
-      dates.add(careDate);
-    }
+  Object.values(plantCareRecordedDatesByPlantId.value).forEach((careDates) => {
+    careDates.forEach((careDate) => dates.add(careDate));
   });
   return Array.from(dates).sort();
 });
@@ -982,9 +1021,9 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
   },
   care: {
     key: "care",
-    label: "养护",
-    value: `${careRecords.value.length}条`,
-    description: "处理日常养护",
+    label: "养护历史",
+    value: `${allCareRecords.value.length}条`,
+    description: "按花卉查看历史记录",
     tone: "tile-green",
     icon: Sprout
   },
@@ -1210,7 +1249,7 @@ const headerTitle = computed(() => {
     return plantView.value === "create" ? "新增花卉" : plantView.value === "edit" ? "编辑花卉" : "花卉";
   }
   if (activeTab.value === "care") {
-    return careView.value === "create" ? "新增养护" : "养护";
+    return "养护历史";
   }
   if (activeTab.value === "shopping") {
     return shoppingView.value === "create" ? "新增清单" : "清单";
@@ -1238,7 +1277,7 @@ const headerTitle = computed(() => {
   return (
     {
       plants: "花卉",
-      care: "养护",
+      care: "养护历史",
       shopping: "清单",
       finance: "记账",
       period: "月经管理",
@@ -1456,6 +1495,28 @@ function readPlantCheckInDates(data: AnyRow): string[] {
     .sort();
 }
 
+function readPlantCheckInEntries(data: AnyRow): PlantCheckInEntry[] {
+  const preferences = data.preferences as AnyRow | undefined;
+  const entries = preferences?.plantCheckInEntries;
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries
+    .map((entry) => {
+      const row = (entry ?? {}) as AnyRow;
+      return {
+        plantId: text(row, "plantId"),
+        checkInDate: text(row, "checkInDate")
+      };
+    })
+    .filter((entry) => entry.plantId && /^\d{4}-\d{2}-\d{2}$/.test(entry.checkInDate))
+    .sort((left, right) =>
+      left.checkInDate === right.checkInDate
+        ? left.plantId.localeCompare(right.plantId)
+        : left.checkInDate.localeCompare(right.checkInDate)
+    );
+}
+
 function isDrawerEntryKey(value: string): value is DrawerEntryKey {
   return value === "flowers" || value === "familyMembers" || value === "coupleWorld" || value === "misc" || isHomeCardKey(value);
 }
@@ -1534,10 +1595,12 @@ function todoAssigneeLabel(task: AnyRow): string {
 function plantStatusLabel(code: string): string {
   return (
     {
-      GROWING: "养护中",
-      BLOOMING: "盛开中",
-      RESTING: "休眠中"
-    }[code] ?? (code || "养护中")
+      GROWING: "成长期",
+      BLOOMING: "花期",
+      FLOWERING: "花期",
+      RESTING: "休眠期",
+      DORMANT: "休眠期"
+    }[code] ?? (code || "成长期")
   );
 }
 
@@ -1557,8 +1620,9 @@ function plantStatusTag(plant: AnyRow): PlantStatusTag | null {
   if (!plantId) {
     return null;
   }
-  const records = careRecordsByPlantId.value[plantId] ?? [];
-  if (records.some((record) => text(record, "care_date") === getTodayDateValue())) {
+  const todayDate = getTodayDateValue();
+  const careDates = plantCareRecordedDatesByPlantId.value[plantId] ?? [];
+  if (careDates.includes(todayDate)) {
     return {
       icon: Check,
       text: "今日已养护",
@@ -1587,11 +1651,26 @@ function plantStatusTag(plant: AnyRow): PlantStatusTag | null {
       tone: "due"
     };
   }
+  const manualDates = manualPlantCheckInDatesByPlantId.value[plantId] ?? [];
+  if (manualDates.includes(todayDate)) {
+    return {
+      icon: Check,
+      text: "今日已打卡",
+      tone: "done"
+    };
+  }
   return {
     icon: Bell,
     text: `${diff}天后需养护`,
     tone: "due"
   };
+}
+
+function hasPlantCheckInOnDate(plantId: string, dateValue = getTodayDateValue()): boolean {
+  if (!plantId || !dateValue) {
+    return false;
+  }
+  return effectivePlantCheckInDatesByPlantId.value[plantId]?.includes(dateValue) ?? false;
 }
 
 function resolvePlantAchievementContent(previousDays: number, currentDays: number): PlantAchievementContent {
@@ -1620,8 +1699,8 @@ function resolvePlantAchievementContent(previousDays: number, currentDays: numbe
     };
   }
   return {
-    title: "今日签到成功",
-    subtitle: "今天的照顾已经记录好了"
+    title: "今日照顾已记录",
+    subtitle: "这次操作已经稳稳记下来了"
   };
 }
 
@@ -2602,6 +2681,7 @@ function triggerPlantAchievement(content: PlantAchievementContent) {
 
 function openTab(tab: TabKey) {
   activeTab.value = tab;
+  closePlantCarePanel();
   petQuickActionOpen.value = false;
   petWeightOpen.value = false;
   if (tab === "todo") {
@@ -2650,6 +2730,7 @@ function openTab(tab: TabKey) {
 }
 
 function goHome() {
+  closePlantCarePanel();
   petQuickActionOpen.value = false;
   petWeightOpen.value = false;
   activeTab.value = "today";
@@ -2820,28 +2901,41 @@ function startEditPlant(plant: AnyRow) {
   plantView.value = "edit";
 }
 
-function startCreateCareRecord() {
-  resetCareDraft(selectedPlantId.value || text(plants.value[0] ?? {}, "id"));
-  careView.value = "create";
+function openPlantCarePanel(plant: AnyRow) {
+  const plantId = text(plant, "id");
+  if (!plantId) {
+    return;
+  }
+  selectedPlantId.value = plantId;
+  plantQuickCarePlantId.value = plantId;
+  resetCareDraft(plantId);
 }
 
-async function submitPlantCheckIn() {
-  if (plants.value.length === 0) {
-    showMessage("请先新增花卉档案，再来签到", "error");
+function closePlantCarePanel() {
+  plantQuickCarePlantId.value = "";
+  resetCareDraft(selectedPlantId.value);
+}
+
+async function submitPlantCheckIn(plant: AnyRow) {
+  const plantId = numberValue(plant, "id");
+  const plantName = text(plant, "name") || "花花";
+  if (!Number.isFinite(plantId) || plantId <= 0) {
+    showMessage("请先补全花卉档案", "error");
     return;
   }
-  if (isPlantCheckedInToday.value) {
-    showMessage("今天已经签到过了", "info");
+  if (hasPlantCheckInOnDate(String(plantId))) {
+    showMessage(`${plantName} 今天已经记录过了`, "info");
     return;
   }
-  await executeAction("plant-check-in", "花花签到失败", async () => {
+  await executeAction(`plant-check-in-${plantId}`, "花花打卡失败", async () => {
     const previousCareDays = plantCareDaysThisMonth.value;
     await api.updatePlantCheckIn({
+      plantId,
       checkInDate: getTodayDateValue()
     });
     await loadAll({ silent: true });
     triggerPlantAchievement(resolvePlantAchievementContent(previousCareDays, plantCareDaysThisMonth.value));
-    showMessage("今日签到成功");
+    showMessage(`${plantName} 今日打卡成功`);
   });
 }
 
@@ -3165,8 +3259,10 @@ function resetDataState() {
   petCareRecords.value = [];
   petWeightRecords.value = [];
   plantCheckInDates.value = [];
+  plantCheckInEntries.value = [];
   selectedTodoId.value = "";
   selectedPlantId.value = "";
+  plantQuickCarePlantId.value = "";
   selectedMemoryId.value = "";
   selectedCalendarDate.value = getTodayDateValue();
   selectedInventoryId.value = "";
@@ -3364,6 +3460,7 @@ async function loadAll(options: { silent?: boolean } = {}) {
     applyHomeCardOrder(readHomeCardOrder(familyData));
     applyHomeViewMode(readHomeViewMode(familyData));
     plantCheckInDates.value = readPlantCheckInDates(familyData);
+    plantCheckInEntries.value = readPlantCheckInEntries(familyData);
     todoTasks.value = choreData;
     reminders.value = reminderData;
     plants.value = plantData;
@@ -3398,12 +3495,17 @@ async function loadAll(options: { silent?: boolean } = {}) {
 
     if (plantData.length === 0) {
       selectedPlantId.value = "";
+      plantQuickCarePlantId.value = "";
       careDraft.value.plantId = "";
     } else {
       if (!plantData.some((plant) => text(plant, "id") === selectedPlantId.value)) {
         selectedPlantId.value = text(plantData[0], "id");
       }
-      if (!plantData.some((plant) => text(plant, "id") === careDraft.value.plantId)) {
+      if (plantQuickCarePlantId.value && !plantData.some((plant) => text(plant, "id") === plantQuickCarePlantId.value)) {
+        closePlantCarePanel();
+      } else if (plantQuickCarePlantId.value) {
+        careDraft.value.plantId = plantQuickCarePlantId.value;
+      } else if (!plantData.some((plant) => text(plant, "id") === careDraft.value.plantId)) {
         careDraft.value.plantId = selectedPlantId.value;
       }
     }
@@ -4010,18 +4112,15 @@ async function saveCareRecord(
     return false;
   }
   const detail = draft.detail.trim();
-  if (!detail) {
-    showMessage("请先填写养护内容", "error");
-    return false;
-  }
+  const detailText = detail || `${careTypeLabel(draft.careType)}已完成`;
   let created = false;
   await executeAction(actionName, "保存养护记录失败", async () => {
     const previousCareDays = plantCareDaysThisMonth.value;
     await api.createCareRecord(plantId, {
       careType: draft.careType,
       careDate: getTodayDateValue(),
-      detail,
-      rawText: detail,
+      detail: detailText,
+      rawText: detailText,
       nextCareAt: draft.nextCareAt || undefined
     });
     selectedPlantId.value = String(plantId);
@@ -4033,26 +4132,14 @@ async function saveCareRecord(
   return created;
 }
 
-async function submitCareRecord() {
-  const plantId = Number(careDraft.value.plantId || selectedPlantId.value || plants.value[0]?.id);
-  const saved = await saveCareRecord(plantId, careDraft.value, "care-create", "养护记录已保存");
+async function submitPlantCareRecord() {
+  const plantId = Number(plantQuickCarePlantId.value || careDraft.value.plantId);
+  const plantName = text(quickCarePlant.value ?? {}, "name") || "花花";
+  const saved = await saveCareRecord(plantId, careDraft.value, `care-create-${plantId}`, `${plantName} 养护已保存`);
   if (!saved) {
     return;
   }
-  resetCareDraft(String(plantId));
-  careView.value = "list";
-}
-
-async function deleteCareRecord(id: number) {
-  const plantId = Number(selectedPlantId.value || careDraft.value.plantId);
-  if (!Number.isFinite(plantId) || !confirmDelete("这条养护记录")) {
-    return;
-  }
-  await executeAction(`care-delete-${id}`, "删除养护记录失败", async () => {
-    await api.deleteCareRecord(plantId, id);
-    await loadAll();
-    showMessage("养护记录已删除");
-  });
+  closePlantCarePanel();
 }
 
 async function submitShoppingItem() {
@@ -5145,19 +5232,13 @@ watch(
         <article class="list-card plant-dashboard-card">
           <div class="section-title">
             <div class="plant-dashboard-copy">
-              <h2>本月养护天数 {{ plantCareDaysThisMonth }}/{{ plantCareMonthTotalDays }}</h2>
+              <h2>本月照顾天数 {{ plantCareDaysThisMonth }}/{{ plantCareMonthTotalDays }}</h2>
               <p>{{ plantOverviewSummary }}</p>
             </div>
             <div class="plant-dashboard-actions">
-              <button
-                :class="['secondary-button', 'compact-button', 'plant-sign-button', { 'is-signed': isPlantCheckedInToday }]"
-                type="button"
-                :disabled="plants.length === 0 || isSubmitting('plant-check-in')"
-                @click="submitPlantCheckIn()"
-              >
-                <LoaderCircle v-if="isSubmitting('plant-check-in')" class="spin" :size="17" />
-                <Check v-else :size="17" />
-                <span>{{ isPlantCheckedInToday ? "今日已签到" : "今日签到" }}</span>
+              <button class="secondary-button compact-button" type="button" @click="openTab('care')">
+                <Sprout :size="17" />
+                <span>养护历史</span>
               </button>
               <button class="secondary-button compact-button plant-add-button" type="button" @click="startCreatePlant()">
                 <Plus :size="17" />
@@ -5172,9 +5253,9 @@ watch(
               <small>{{ todayDuePlantSummary }}</small>
             </article>
             <article class="mini-metric">
-              <span>本月签到</span>
+              <span>本月照顾</span>
               <strong>{{ plantCareDaysThisMonth }}/{{ plantCareMonthTotalDays }}</strong>
-              <small>{{ plantCareDaysThisMonth > 0 ? "手动签到或真实养护都会算一次照顾成功" : "今天开始给花花打卡吧" }}</small>
+              <small>{{ plantCareDaysThisMonth > 0 ? "手动打卡或养护都会算一次照顾成功" : "今天开始照顾花花吧" }}</small>
             </article>
             <article class="mini-metric">
               <span>较上月</span>
@@ -5264,6 +5345,32 @@ watch(
               </button>
             </div>
           </div>
+          <div class="plant-card-actions">
+            <button class="secondary-button compact-button plant-card-action-button" type="button" @click.stop="openPlantCarePanel(plant)">
+              <Sprout :size="16" />
+              <span>养护</span>
+            </button>
+            <button
+              :class="[
+                'secondary-button',
+                'compact-button',
+                'plant-card-action-button',
+                'plant-card-check-button',
+                { 'is-complete': hasPlantCheckInOnDate(text(plant, 'id')) }
+              ]"
+              :disabled="
+                !text(plant, 'id') ||
+                hasPlantCheckInOnDate(text(plant, 'id')) ||
+                isSubmitting(`plant-check-in-${text(plant, 'id')}`)
+              "
+              type="button"
+              @click.stop="submitPlantCheckIn(plant)"
+            >
+              <LoaderCircle v-if="isSubmitting(`plant-check-in-${text(plant, 'id')}`)" class="spin" :size="16" />
+              <Check v-else :size="16" />
+              <span>{{ hasPlantCheckInOnDate(text(plant, "id")) ? "已打卡" : "打卡" }}</span>
+            </button>
+          </div>
         </article>
       </template>
 
@@ -5304,9 +5411,9 @@ watch(
         <div class="inline-fields">
           <input v-model="plantDraft.acquiredOn" type="date" />
           <select v-model="plantDraft.status">
-            <option value="GROWING">养护中</option>
-            <option value="BLOOMING">盛开中</option>
-            <option value="RESTING">休眠中</option>
+            <option value="GROWING">成长期</option>
+            <option value="BLOOMING">花期</option>
+            <option value="RESTING">休眠期</option>
           </select>
         </div>
         <button class="secondary-button" :disabled="isSubmitting('plant-create')" type="button" @click="submitPlantCreate()">
@@ -5353,9 +5460,9 @@ watch(
         <div class="inline-fields">
           <input v-model="plantEditDraft.acquiredOn" type="date" />
           <select v-model="plantEditDraft.status">
-            <option value="GROWING">养护中</option>
-            <option value="BLOOMING">盛开中</option>
-            <option value="RESTING">休眠中</option>
+            <option value="GROWING">成长期</option>
+            <option value="BLOOMING">花期</option>
+            <option value="RESTING">休眠期</option>
           </select>
         </div>
         <button class="secondary-button" :disabled="isSubmitting('plant-update')" type="button" @click="submitPlantEdit()">
@@ -5367,7 +5474,7 @@ watch(
     </section>
 
     <section v-if="activeTab === 'care'" class="view">
-      <article v-if="careView === 'list'" class="list-card care-overview-card">
+      <article class="list-card care-overview-card">
         <div class="section-title">
           <h2>待养护</h2>
           <span>{{ pendingPlantCareReminders.length }}</span>
@@ -5383,12 +5490,10 @@ watch(
         </template>
       </article>
 
-      <article v-if="careView === 'list'" class="list-card">
+      <article class="list-card">
         <div class="section-title">
           <h2>养护历史</h2>
-          <button class="icon-button" type="button" aria-label="新增养护" title="新增养护" @click="startCreateCareRecord()">
-            <Plus :size="18" />
-          </button>
+          <span>{{ careRecords.length }}</span>
         </div>
         <select v-model="selectedPlantId">
           <option value="">选择花卉查看</option>
@@ -5401,54 +5506,13 @@ watch(
           <p>{{ text(currentPlant ?? {}, "name") }}</p>
           <small>{{ text(currentPlant ?? {}, "location") || "未记录位置" }}</small>
         </div>
-        <p v-if="careRecords.length === 0" class="empty">选择花卉后查看养护历史</p>
-        <div v-for="record in careRecords" :key="text(record, 'id')" class="feed-item feed-item-actions">
+        <p v-if="plants.length === 0" class="empty">还没有花卉档案，先去新增一盆花花吧。</p>
+        <p v-else-if="careRecords.length === 0" class="empty">当前花卉还没有养护历史。</p>
+        <div v-for="record in careRecords" :key="text(record, 'id')" class="feed-item">
           <span>{{ careTypeLabel(text(record, "care_type")) }} · {{ text(record, "care_date") }}</span>
           <p>{{ text(record, "detail") || text(record, "raw_text") }}</p>
           <small v-if="text(record, 'next_care_at')">下次养护：{{ formatDateTime(text(record, "next_care_at")) }}</small>
-          <button class="text-button danger-button" type="button" @click="deleteCareRecord(numberValue(record, 'id'))">
-            <Trash2 :size="15" />
-            <span>删除</span>
-          </button>
         </div>
-      </article>
-
-      <article v-else class="form-card">
-        <div class="section-title">
-          <button class="icon-button" type="button" aria-label="返回养护列表" title="返回养护列表" @click="careView = 'list'">
-            <ArrowLeft :size="18" />
-          </button>
-          <h2>新增养护</h2>
-          <Sprout :size="18" />
-        </div>
-        <select v-model="careDraft.plantId">
-          <option value="">选择花卉</option>
-          <option v-for="plant in plants" :key="text(plant, 'id')" :value="text(plant, 'id')">
-            {{ text(plant, "name") }}
-          </option>
-        </select>
-        <div class="inline-fields">
-          <div class="field-stack">
-            <span class="field-label">养护类型</span>
-            <select v-model="careDraft.careType">
-              <option value="WATER">浇水</option>
-              <option value="FERTILIZE">施肥</option>
-              <option value="PRUNE">修剪</option>
-              <option value="OBSERVE">观察</option>
-            </select>
-          </div>
-          <div class="field-stack">
-            <span class="field-label">下次养护时间</span>
-            <input v-model="careDraft.nextCareAt" type="datetime-local" />
-          </div>
-        </div>
-        <small class="muted">这里改为手动填写；留空就只记录本次养护，不会再根据文字自动识别提醒时间。</small>
-        <textarea v-model="careDraft.detail" rows="3" placeholder="记录这次做了什么、植物现在状态如何" />
-        <button class="secondary-button" :disabled="isSubmitting('care-create')" type="button" @click="submitCareRecord">
-          <LoaderCircle v-if="isSubmitting('care-create')" class="spin" :size="17" />
-          <Plus v-else :size="17" />
-          <span>保存养护</span>
-        </button>
       </article>
     </section>
 
@@ -6983,13 +7047,52 @@ watch(
       </div>
     </transition>
     <div
-      v-if="petQuickActionOpen || petWeightOpen"
+      v-if="plantQuickCarePlantId || petQuickActionOpen || petWeightOpen"
       class="drawer-backdrop"
       @click="
+        closePlantCarePanel();
         petQuickActionOpen = false;
         petWeightOpen = false;
       "
     />
+    <section v-if="plantQuickCarePlantId" class="quick-care-sheet plant-sheet">
+      <div class="section-title">
+        <div>
+          <p class="eyebrow">花花快捷养护</p>
+          <h2>{{ text(quickCarePlant ?? {}, "name") || "当前花花" }} · {{ careTypeLabel(careDraft.careType) }}</h2>
+        </div>
+        <button class="icon-button" type="button" aria-label="关闭快捷养护" title="关闭快捷养护" @click="closePlantCarePanel()">
+          <ArrowLeft :size="18" />
+        </button>
+      </div>
+      <div class="inline-fields">
+        <div class="field-stack">
+          <span class="field-label">养护类型</span>
+          <select v-model="careDraft.careType">
+            <option value="WATER">浇水</option>
+            <option value="FERTILIZE">施肥</option>
+            <option value="PRUNE">修剪</option>
+            <option value="OBSERVE">观察</option>
+          </select>
+        </div>
+        <div class="field-stack">
+          <span class="field-label">下次养护时间</span>
+          <input v-model="careDraft.nextCareAt" type="datetime-local" />
+        </div>
+      </div>
+      <small class="muted">留空就只记录这次养护；保存后今天会自动算作已打卡。</small>
+      <textarea v-model="careDraft.detail" rows="3" placeholder="补充状态、用量或备注，也可以留空" />
+      <button
+        class="secondary-button"
+        :disabled="isSubmitting(`care-create-${plantQuickCarePlantId}`)"
+        type="button"
+        @click="submitPlantCareRecord"
+      >
+        <LoaderCircle v-if="isSubmitting(`care-create-${plantQuickCarePlantId}`)" class="spin" :size="17" />
+        <Sprout v-else :size="17" />
+        <span>保存养护</span>
+      </button>
+    </section>
     <section v-if="petQuickActionOpen" class="quick-care-sheet pet-sheet">
       <div class="section-title">
         <div>
