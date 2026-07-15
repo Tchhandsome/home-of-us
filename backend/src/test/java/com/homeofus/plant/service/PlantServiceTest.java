@@ -1,6 +1,7 @@
 package com.homeofus.plant.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
@@ -130,6 +132,28 @@ class PlantServiceTest {
         verify(plantRepository).insertCareRecord(7402L, DefaultFamily.FAMILY_ID, 7102L, request,
                 LocalDate.of(2026, 7, 9), null, 9003L, now);
         verifyNoInteractions(reminderService);
+    }
+
+    @Test
+    void shouldCompleteDueRemindersForPlantBeforeRecordingCare() {
+        CurrentUser currentUser = new CurrentUser(9003L, DefaultFamily.FAMILY_ID, 1001L, "xiaotan", "小谭");
+        LocalDateTime now = LocalDateTime.of(2026, 7, 9, 10, 0);
+        CreatePlantCareRecordRequest request = new CreatePlantCareRecordRequest();
+        request.setCareType("WATER");
+        request.setCareDate("2026-07-09");
+
+        when(currentUserProvider.getCurrentUser()).thenReturn(currentUser);
+        when(idGenerator.nextId()).thenReturn(7403L);
+        when(timeProvider.now()).thenReturn(now);
+        when(plantRepository.findPlant(7103L, DefaultFamily.FAMILY_ID)).thenReturn(Optional.of(Map.of("id", 7103L)));
+
+        plantService.createCareRecord(7103L, request);
+
+        InOrder inOrder = inOrder(reminderRepository, plantRepository);
+        inOrder.verify(reminderRepository).completePendingPlantCareReminders(DefaultFamily.FAMILY_ID, 7103L,
+                "PLANT_CARE", LocalDateTime.of(2026, 7, 10, 0, 0), 9003L, now);
+        inOrder.verify(plantRepository).insertCareRecord(7403L, DefaultFamily.FAMILY_ID, 7103L, request,
+                LocalDate.of(2026, 7, 9), null, 9003L, now);
     }
 
     @Test

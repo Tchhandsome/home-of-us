@@ -23,6 +23,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 花卉业务服务。
@@ -111,12 +112,15 @@ public class PlantService {
      * @param request 创建请求
      * @return 新养护记录 ID
      */
+    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> createCareRecord(Long plantId, CreatePlantCareRecordRequest request) {
         ensurePlantExists(plantId);
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         Long id = idGenerator.nextId();
         LocalDate careDate = parseDate(request.getCareDate(), timeProvider.today());
         LocalDateTime nextCareAt = resolveNextCareAt(request);
+        reminderRepository.completePendingPlantCareReminders(DefaultFamily.FAMILY_ID, plantId, PLANT_CARE_SOURCE_TYPE,
+                careDate.plusDays(1).atStartOfDay(), currentUser.getUserId(), timeProvider.now());
         plantRepository.insertCareRecord(id, DefaultFamily.FAMILY_ID, plantId, request, careDate, nextCareAt,
                 currentUser.getUserId(), timeProvider.now());
         createCareReminder(plantId, id, request, nextCareAt);

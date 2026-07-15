@@ -2927,16 +2927,12 @@ async function submitPlantCheckIn(plant: AnyRow) {
     showMessage(`${plantName} 今天已经记录过了`, "info");
     return;
   }
-  await executeAction(`plant-check-in-${plantId}`, "花花打卡失败", async () => {
-    const previousCareDays = plantCareDaysThisMonth.value;
-    await api.updatePlantCheckIn({
-      plantId,
-      checkInDate: getTodayDateValue()
-    });
-    await loadAll({ silent: true });
-    triggerPlantAchievement(resolvePlantAchievementContent(previousCareDays, plantCareDaysThisMonth.value));
-    showMessage(`${plantName} 今日打卡成功`);
-  });
+  await saveCareRecord(
+    plantId,
+    { careType: "WATER", detail: "", nextCareAt: "" },
+    `plant-check-in-${plantId}`,
+    `${plantName} 今日打卡成功`
+  );
 }
 
 function startCreateShopping() {

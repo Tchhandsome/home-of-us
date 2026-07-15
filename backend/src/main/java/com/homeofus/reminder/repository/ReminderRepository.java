@@ -95,6 +95,28 @@ public class ReminderRepository {
     }
 
     /**
+     * 完成指定花卉在截止时间前的待处理养护提醒。
+     *
+     * @param familyId 家庭 ID
+     * @param plantId 花卉 ID
+     * @param sourceType 来源类型
+     * @param completedBefore 截止时间（不包含）
+     * @param operatorId 操作人
+     * @param now 完成时间
+     * @return 更新行数
+     */
+    public int completePendingPlantCareReminders(Long familyId, Long plantId, String sourceType,
+            LocalDateTime completedBefore, Long operatorId, LocalDateTime now) {
+        return jdbcTemplate.update(
+                "UPDATE reminder r INNER JOIN plant_care_record pcr "
+                        + "ON pcr.id = r.source_id AND pcr.family_id = r.family_id AND pcr.deleted = 0 "
+                        + "SET r.status = 'DONE', r.completed_at = ?, r.updated_at = ?, r.updated_by = ? "
+                        + "WHERE r.family_id = ? AND pcr.plant_id = ? AND r.source_type = ? "
+                        + "AND r.due_at < ? AND r.status = 'PENDING' AND r.deleted = 0",
+                now, now, operatorId, familyId, plantId, sourceType, completedBefore);
+    }
+
+    /**
      * 删除提醒。
      *
      * @param id 提醒 ID
