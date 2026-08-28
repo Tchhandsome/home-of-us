@@ -18,6 +18,7 @@ import {
   ChefHat,
   Check,
   ClipboardList,
+  Dices,
   Droplets,
   Eye,
   EyeOff,
@@ -500,6 +501,10 @@ const voteDraft = ref({
   voteCategory: "CUSTOM",
   optionsText: ""
 });
+const decisionOptionsText = ref("喝酒\n吃烧烤\n看电影\n看电视剧\n看综艺\n打游戏\n喝酒看电视剧/综艺一起\n打小谭");
+const decisionResult = ref("");
+const decisionHistory = ref<string[]>([]);
+const decisionRolling = ref(false);
 const recipeDraft = ref({
   title: "",
   mealType: "DINNER",
@@ -675,6 +680,7 @@ const petQuickActionDefinitions: Record<
 let messageTimer: number | undefined;
 let refreshTimer: number | undefined;
 let plantAchievementTimer: number | undefined;
+let decisionTimer: number | undefined;
 
 function reminderModuleKeyOfSourceType(sourceType: string): ReminderModuleKey {
   if (sourceType === "PLANT_CARE") {
@@ -954,8 +960,6 @@ const foodInventoryItems = computed(() => inventoryItems.value.filter((item) => 
 const supplyInventoryItems = computed(() =>
   inventoryItems.value.filter((item) => text(item, "item_type") !== "FOOD")
 );
-const openFamilyVotes = computed(() => familyVotes.value.filter((item) => text(item, "status") === "OPEN"));
-const historyFamilyVotes = computed(() => familyVotes.value.filter((item) => text(item, "status") !== "OPEN"));
 const familyMembers = computed<AnyRow[]>(() => {
   const members = family.value.members;
   return Array.isArray(members) ? (members as AnyRow[]) : [];
@@ -1095,14 +1099,11 @@ const homeCardDefinitions = computed<Record<HomeCardKey, HomeCardDefinition>>(()
   },
   votes: {
     key: "votes",
-    label: "投票",
-    value: `${openFamilyVotes.value.length}场进行中`,
-    description:
-      openFamilyVotes.value.length > 0
-        ? `待决定 ${openFamilyVotes.value.length} 场，历史 ${historyFamilyVotes.value.length} 场`
-        : "吃什么、去哪玩都能快速表决",
-    tone: "tile-plum",
-    icon: Send
+    label: "决策器",
+    value: decisionResult.value || "随手一抽",
+    description: decisionHistory.value.length > 0 ? `已经做过 ${decisionHistory.value.length} 次决定` : "把纠结交给随机数",
+    tone: "tile-gold",
+    icon: Dices
   },
   inventory: {
     key: "inventory",
@@ -1258,7 +1259,7 @@ const headerTitle = computed(() => {
     return memoryView.value === "create" ? "新增时刻" : memoryView.value === "edit" ? "编辑时刻" : "时刻墙";
   }
   if (activeTab.value === "votes") {
-    return voteView.value === "create" ? "新增投票" : "家庭投票";
+    return "丹总专属决策器";
   }
   if (activeTab.value === "inventory") {
     return inventoryView.value === "create" ? "新增物资" : inventoryView.value === "edit" ? "编辑物资" : "库存与物资";
@@ -2593,6 +2594,52 @@ function resetVoteDraft() {
   };
 }
 
+function decisionOptions(): string[] {
+  return decisionOptionsText.value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function clearDecisionHistory() {
+  decisionHistory.value = [];
+}
+
+function makeDecision() {
+  const options = decisionOptions();
+  if (decisionRolling.value) {
+    return;
+  }
+  if (options.length === 0) {
+    decisionResult.value = "先写几个选项吧";
+    showMessage("请至少填写一个选项", "error");
+    return;
+  }
+  if (options.length === 1) {
+    decisionResult.value = options[0];
+    decisionHistory.value = [options[0], ...decisionHistory.value.filter((item) => item !== options[0])].slice(0, 5);
+    return;
+  }
+  decisionRolling.value = true;
+  decisionResult.value = "正在摇摆...";
+  let count = 0;
+  decisionTimer = window.setInterval(() => {
+    decisionResult.value = options[Math.floor(Math.random() * options.length)];
+    count += 1;
+    if (count < 16) {
+      return;
+    }
+    if (decisionTimer) {
+      window.clearInterval(decisionTimer);
+      decisionTimer = undefined;
+    }
+    const finalResult = options[Math.floor(Math.random() * options.length)];
+    decisionResult.value = finalResult;
+    decisionHistory.value = [finalResult, ...decisionHistory.value.filter((item) => item !== finalResult)].slice(0, 5);
+    decisionRolling.value = false;
+  }, 90);
+}
+
 function resetRecipeDraft() {
   recipeDraft.value = {
     title: "",
@@ -3273,6 +3320,14 @@ function resetDataState() {
   resetPetQuickActionDraft();
   resetPetWeightDraft();
   resetCareDraft();
+  if (decisionTimer) {
+    window.clearInterval(decisionTimer);
+    decisionTimer = undefined;
+  }
+  decisionOptionsText.value = "喝酒\n吃烧烤\n看电影\n看电视剧\n看综艺\n打游戏\n喝酒看电视剧/综艺一起\n打小谭";
+  decisionResult.value = "";
+  decisionHistory.value = [];
+  decisionRolling.value = false;
   plantView.value = "list";
   careView.value = "list";
   todoView.value = "list";
@@ -3426,7 +3481,6 @@ async function loadAll(options: { silent?: boolean } = {}) {
       privateData,
       albumData,
       inventoryData,
-      voteData,
       recipeData,
       mealPlanData,
       petData
@@ -3445,7 +3499,6 @@ async function loadAll(options: { silent?: boolean } = {}) {
       api.privateMessages(),
       api.albumPhotos(),
       api.inventoryItems(),
-      api.familyVotes(),
       api.recipes(),
       api.mealPlans(mealPlanWeekStart.value),
       api.pets()
@@ -3468,7 +3521,6 @@ async function loadAll(options: { silent?: boolean } = {}) {
     privateMessages.value = privateData;
     albumPhotos.value = albumData;
     inventoryItems.value = inventoryData;
-    familyVotes.value = voteData;
     recipes.value = recipeData;
     mealPlans.value = mealPlanData;
     pets.value = petData;
@@ -4724,6 +4776,10 @@ onUnmounted(() => {
   if (plantAchievementTimer) {
     window.clearTimeout(plantAchievementTimer);
     plantAchievementTimer = undefined;
+  }
+  if (decisionTimer) {
+    window.clearInterval(decisionTimer);
+    decisionTimer = undefined;
   }
   if (typeof window === "undefined") {
     return;
@@ -6183,84 +6239,43 @@ watch(
     </section>
 
     <section v-if="activeTab === 'votes'" class="view">
-        <article v-if="voteView === 'list'" class="list-card">
+      <article class="decision-card">
+        <div class="decision-hero">
+          <div class="decision-mark"><Dices :size="26" /></div>
+          <div>
+            <p class="eyebrow">把纠结交给随机数</p>
+            <h2>丹总专属决策器</h2>
+            <p class="decision-subtitle">两个人不用表决，抽一个就出发。</p>
+          </div>
+        </div>
+        <div class="decision-input-wrap">
           <div class="section-title">
-            <h2>家庭投票</h2>
-            <button class="icon-button" type="button" aria-label="新增投票" title="新增投票" @click="startCreateVote()">
-              <Plus :size="18" />
-            </button>
+            <label class="field-label" for="decision-options">候选选项</label>
+            <span>{{ decisionOptions().length }} 个</span>
           </div>
-          <p v-if="familyVotes.length === 0" class="empty">还没有投票</p>
-          <article v-for="vote in openFamilyVotes" :key="text(vote, 'id')" class="vote-card">
-            <div class="section-title">
-              <div>
-                <h3>{{ text(vote, "title") }}</h3>
-                <span>{{ voteCategoryLabel(text(vote, "vote_category")) }}</span>
-              </div>
-              <div class="row-actions">
-                <button class="icon-button" type="button" aria-label="随机决定" title="随机决定" @click="decideVote(numberValue(vote, 'id'))">
-                  <Check :size="16" />
-                </button>
-                <button
-                  class="icon-button danger-icon-button"
-                  type="button"
-                  aria-label="删除投票"
-                  title="删除投票"
-                  @click="deleteVote(numberValue(vote, 'id'))"
-                >
-                  <Trash2 :size="16" />
-                </button>
-              </div>
-            </div>
-            <div class="option-chip-group">
-              <button v-for="option in voteOptions(vote)" :key="text(option, 'id')" class="option-chip" type="button" @click="submitVoteChoice(numberValue(vote, 'id'), numberValue(option, 'id'))">
-                <span>{{ text(option, "option_text") }}</span>
-                <strong>{{ numberValue(option, "voteCount") }}</strong>
-              </button>
-            </div>
-          </article>
-          <div v-if="historyFamilyVotes.length > 0" class="subsection">
-            <div class="section-title">
-              <h2>历史记录</h2>
-              <span>{{ historyFamilyVotes.length }}</span>
-            </div>
-            <div v-for="vote in historyFamilyVotes" :key="`history-${text(vote, 'id')}`" class="feed-item">
-              <span>{{ voteCategoryLabel(text(vote, "vote_category")) }}</span>
-              <p>{{ text(vote, "title") }}</p>
-              <small>结果：{{ text(vote, "decidedOptionText") || "待确认" }}</small>
-            </div>
-          </div>
-        </article>
-
-        <article v-else class="form-card">
+          <textarea id="decision-options" v-model="decisionOptionsText" rows="8" placeholder="每行写一个选项" />
+        </div>
+        <button class="decision-button" :disabled="decisionRolling" type="button" @click="makeDecision()">
+          <LoaderCircle v-if="decisionRolling" class="spin" :size="19" />
+          <Dices v-else :size="19" />
+          <span>{{ decisionRolling ? "正在抽取" : "帮我决定" }}</span>
+        </button>
+        <div class="decision-result" :class="{ rolling: decisionRolling, ready: decisionResult && !decisionRolling }">
+          <span class="decision-result-label">今天就选</span>
+          <strong>{{ decisionResult || "等你按下按钮" }}</strong>
+        </div>
+        <div v-if="decisionHistory.length > 0" class="decision-history">
           <div class="section-title">
-            <button class="icon-button" type="button" aria-label="返回投票列表" title="返回投票列表" @click="voteView = 'list'">
-              <ArrowLeft :size="18" />
-            </button>
-            <h2>新增投票</h2>
-            <Users :size="18" />
-          </div>
-          <div class="section-actions-grid">
-            <button class="secondary-button compact-button" type="button" @click="applyVoteTemplate('EAT')">
-              <span>吃什么模板</span>
-            </button>
-            <button class="secondary-button compact-button" type="button" @click="applyVoteTemplate('PLAY')">
-              <span>玩什么模板</span>
+            <span class="field-label">最近决定</span>
+            <button class="icon-button" type="button" aria-label="清空历史决定" title="清空历史决定" @click="clearDecisionHistory()">
+              <Trash2 :size="16" />
             </button>
           </div>
-          <input v-model="voteDraft.title" placeholder="投票标题" />
-          <select v-model="voteDraft.voteCategory">
-            <option value="CUSTOM">自定义</option>
-            <option value="EAT">吃什么</option>
-            <option value="PLAY">玩什么</option>
-          </select>
-          <textarea v-model="voteDraft.optionsText" rows="6" placeholder="每行一个选项" />
-          <button class="secondary-button" :disabled="isSubmitting('vote-create')" type="button" @click="submitVoteCreate()">
-            <LoaderCircle v-if="isSubmitting('vote-create')" class="spin" :size="17" />
-            <Plus v-else :size="17" />
-            <span>创建投票</span>
-          </button>
-        </article>
+          <div class="decision-history-list">
+            <span v-for="(item, index) in decisionHistory" :key="`${item}-${index}`">{{ item }}</span>
+          </div>
+        </div>
+      </article>
     </section>
 
     <section v-if="activeTab === 'recipes'" class="view">
